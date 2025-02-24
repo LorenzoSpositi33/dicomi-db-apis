@@ -1,24 +1,19 @@
-import express, { Request, Response } from "express";
-import * as dotenv from "dotenv";
-dotenv.config();
-
-const app = express();
-const port: number = 3100;
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const app = (0, express_1.default)();
+const port = 3100;
 // Tabelle da configurare
 const apiPort = process.env.DB_API_PORT;
-
-app.get("/updateConcorrenteOss", (req: Request, res: Response) => {
-  // Quando si usa Outlook, viene aggiunto un x_ davanti
-  const newOssId: string | undefined =
-    (req.query.x_newOssId as string) || (req.query.newOssId as string);
-  const actOssId: string | undefined =
-    (req.query.x_actOssId as string) || (req.query.actOssId as string);
-
-  console.log(`Received: newOssId = ${newOssId}, actOssId = ${actOssId}`);
-
-  res.send(
-    `<!DOCTYPE html>
+app.get("/updateConcorrenteOss", (req, res) => {
+    // Quando si usa Outlook, viene aggiunto un x_ davanti
+    const newOssId = req.query.x_newOssId || req.query.newOssId;
+    const actOssId = req.query.x_actOssId || req.query.actOssId;
+    console.log(`Received: newOssId = ${newOssId}, actOssId = ${actOssId}`);
+    res.send(`<!DOCTYPE html>
       <html lang="it">
          <head>
             <meta charset="UTF-8">
@@ -56,10 +51,8 @@ app.get("/updateConcorrenteOss", (req: Request, res: Response) => {
             </div>
          </body>
       </html>
-   `
-  );
+   `);
 });
-
 app.listen(apiPort, () => {
-  console.log(`Service started and listening on port ${apiPort}`);
+    console.log(`Service started and listening on port ${apiPort}`);
 });

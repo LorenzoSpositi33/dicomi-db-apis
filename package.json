@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --ext ts --exec ts-node main.ts",
-    "start": "node dist/main.js",
+    "start": "node main.js",
     "build": "tsc"
   },
   "repository": {
@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/ICEInformaticsDozio/dicomi-db-apis#readme",
   "dependencies": {
+    "dotenv": "^16.4.7",
     "express": "^4.21.2"
   },
   "devDependencies": {
