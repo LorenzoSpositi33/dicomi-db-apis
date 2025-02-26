@@ -1,7 +1,6 @@
 import winston from "winston";
 import path from "path";
 import { fileURLToPath } from "url";
-import MemoryTransport from "./memoryTransport.js";
 
 // Icone da usare nei log:
 // ✅ Successo (info)
@@ -17,10 +16,6 @@ const __dirname = path.dirname(__filename);
 // Filtro che raccoglie solo log con il flag "mail_log"
 const mail_log = winston.format((info) => {
   return info.mail_log ? info : false;
-});
-
-const memoryTransport = new MemoryTransport({
-  format: mail_log(),
 });
 
 // Configura Winston
@@ -52,9 +47,8 @@ const logger: winston.Logger = winston.createLogger({
       filename: path.join(__dirname, "..", "logs", "errors.log"),
       level: "error",
     }),
-    memoryTransport,
   ],
 });
 
 // Esporta il logger
-export { logger, memoryTransport };
+export { logger };

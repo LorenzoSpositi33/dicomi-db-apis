@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import * as dotenv from "dotenv";
 import { sql, getDatabasePool } from "./db/db.js";
-import { logger, memoryTransport } from "./logger/logger.js";
+import { logger } from "./logger/logger.js";
 import crypto from "crypto";
 
 dotenv.config();
