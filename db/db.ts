@@ -32,11 +32,11 @@ export const getDatabasePool = async (): Promise<sql.ConnectionPool> => {
     poolPromise = new sql.ConnectionPool(config)
       .connect()
       .then((pool) => {
-        logger.info("✅ Connessione al database riuscita");
+        logger.info("Connessione al database riuscita");
         return pool;
       })
       .catch((err) => {
-        logger.error("❌ Errore nella connessione al database:", err);
+        logger.error("Errore nella connessione al database:", err);
         throw err;
       });
   }

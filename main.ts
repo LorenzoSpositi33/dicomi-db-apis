@@ -15,7 +15,7 @@ const app = express();
 
 // Funzione per calcolare l'hash di una stringa
 function hashString(input: string): string {
-  logger.info("✅ Secret in generazione");
+  logger.info("Secret in generazione");
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
@@ -34,17 +34,17 @@ async function replaceOss(oldId: string, newId: string): Promise<boolean> {
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `✅ ID Osservatorio sostituito con successo in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`
+        `ID Osservatorio sostituito con successo in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`
       );
       return true;
     } else {
       logger.warn(
-        `⚠️ Nessuna riga è stata sostituita in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`
+        `Nessuna riga è stata sostituita in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`
       );
     }
   } catch (err) {
     logger.error(
-      `❌ Errore durante la sostituzione dell'ID Osservatorio in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`,
+      `Errore durante la sostituzione dell'ID Osservatorio in ${concTable}, da IDOss ${oldId} a IDOss ${newId}`,
       err
     );
   }
@@ -56,7 +56,7 @@ app.get(
   "/updateConcorrenteOss",
   async (req: Request, res: Response): Promise<any> => {
     logger.info(
-      `🚀 Ricevuta la richiesta /updateConcorrenteOss con questi parametri: ${JSON.stringify(
+      `Ricevuta la richiesta /updateConcorrenteOss con questi parametri: ${JSON.stringify(
         req.query,
         null,
         2
@@ -72,9 +72,7 @@ app.get(
         (req.query.x_secretKey as string) || (req.query.secretKey as string);
 
       if (!newOssId || !actOssId || !secretKey) {
-        logger.error(
-          "❌ I valori newOssId, actOssId o secretKey non sono validi"
-        );
+        logger.error("I valori newOssId, actOssId o secretKey non sono validi");
         return res.status(400).send(
           `<!DOCTYPE html>
           <html lang="it">
@@ -124,7 +122,7 @@ app.get(
 
       if (authHash !== secretKey) {
         logger.error(
-          "❌ La chiave di autenticazione non è corretta, l'operazione non è autorizzata"
+          "La chiave di autenticazione non è corretta, l'operazione non è autorizzata"
         );
         return res.status(401).send(
           `<!DOCTYPE html>
@@ -169,7 +167,7 @@ app.get(
       }
 
       if (await replaceOss(actOssId, newOssId)) {
-        logger.info("✅ Sostituzione avvenuta con successo");
+        logger.info("Sostituzione avvenuta con successo");
         return res.status(200).send(
           `<!DOCTYPE html>
             <html lang="it">
@@ -211,7 +209,7 @@ app.get(
             </html>`
         );
       } else {
-        logger.error("❌ Sostituzione non avvenuta");
+        logger.error("Sostituzione non avvenuta");
         return res.status(400).send(
           `<!DOCTYPE html>
         <html lang="it">
@@ -254,7 +252,7 @@ app.get(
         );
       }
     } catch (error) {
-      logger.error("❌ Errore nel gestire la richiesta: ", error);
+      logger.error("Errore nel gestire la richiesta: ", error);
       return res.status(500).send(
         `<!DOCTYPE html>
        <html lang="it">
@@ -300,5 +298,5 @@ app.get(
 );
 
 app.listen(apiPort, () => {
-  logger.info(`🚀 Servizio avviato e in ascolto sulla porta: ${apiPort}`);
+  logger.info(`Servizio avviato e in ascolto sulla porta: ${apiPort}`);
 });
