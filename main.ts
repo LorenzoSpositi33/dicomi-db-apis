@@ -24,7 +24,7 @@ async function replaceOss(oldId: string, newId: string): Promise<boolean> {
   try {
     const pool = await getDatabasePool();
 
-    const query = `UPDATE ${concTable} SET id = @newId WHERE id = @oldId`;
+    const query = `UPDATE ${concTable} SET idOsservatorioPrezzi = @newId WHERE idOsservatorioPrezzi = @oldId`;
 
     const result = await pool
       .request()

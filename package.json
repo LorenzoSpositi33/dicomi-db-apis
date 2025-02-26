@@ -6,8 +6,8 @@
   "main": "main.ts",
   "scripts": {
     "dev": "nodemon --ext ts --exec \"npx tsx main.ts\"",
-    "start": "node main.js",
-    "build": "tsc"
+    "build": "tsc",
+    "start": "pm2 start ecosystem.config.js"
   },
   "repository": {
     "type": "git",
