@@ -2,6 +2,5 @@
    "watch": [
       "."
    ],
-   "ext": "ts",
-   "exec": "ts-node main.ts"
+   "ext": "ts"
 }
