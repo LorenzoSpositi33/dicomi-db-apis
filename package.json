@@ -8,7 +8,7 @@
     "dev": "nodemon --ext ts --exec \"npx tsx main.ts\"",
     "build": "tsc",
     "start": "pm2 start ecosystem.config.js",
-    "postinstall": "npm install -g pm2"
+    "postinstall": "npm install -g pm2 typescript"
   },
   "repository": {
     "type": "git",
