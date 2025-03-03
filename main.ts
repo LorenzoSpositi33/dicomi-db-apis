@@ -3,6 +3,9 @@ import * as dotenv from "dotenv";
 import { sql, getDatabasePool } from "./db/db.js";
 import { logger } from "./logger/logger.js";
 import crypto from "crypto";
+// Aggiunto per HTTPS
+import https from "https";
+import fs from "fs";
 
 dotenv.config();
 
@@ -12,6 +15,15 @@ const concTable = process.env.TABLE_CONCORRENZA;
 const secretGen = process.env.SECRET_AUTH_KEY;
 
 const app = express();
+
+// Leggi i file dei certificati SSL
+const privateKey = fs.readFileSync("C:/Certificati/cert_dicosv001.key", "utf8");
+const certificate = fs.readFileSync("C:/Certificati/cert_dicosv001.crt", "utf8");
+const credentials = { key: privateKey, cert: certificate };
+
+// Crea il server HTTPS usando l'app Express
+const httpsServer = https.createServer(credentials, app);
+
 
 // Funzione per calcolare l'hash di una stringa
 function hashString(input: string): string {
@@ -297,6 +309,6 @@ app.get(
   }
 );
 
-app.listen(apiPort, () => {
-  logger.info(`Servizio avviato e in ascolto sulla porta: ${apiPort}`);
+httpsServer.listen(apiPort, () => {
+  logger.info(`Servizio avviato e in ascolto sulla porta HTTPS: ${apiPort}`);
 });
