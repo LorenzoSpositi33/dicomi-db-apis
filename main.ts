@@ -316,8 +316,8 @@ async function upsertOrdinato(
 
 // Funzione per elaborare il file di carte credito
 async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
-  // const sellinMap = await sellInMapping();
-  // const impiantiMap = await impiantiMapping();
+  const sellinMap = await sellInMapping();
+  const impiantiMap = await impiantiMapping();
 
   const expectedHeaders = [
     "TIPO TRS",
@@ -332,8 +332,6 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     "PRZ ACCR",
   ];
 
-  console.log(expectedHeaders);
-
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     console.error(
@@ -342,72 +340,156 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     return false;
   }
 
-  // // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
-  // for (const row of results) {
-  //   // Ottengo il prodotto (ArticoloSellIn)
-  //   const prodotto = String(row.PRODOTTO);
+  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+  for (const row of results) {
+    const trs = String(row["TIPO TRS"]);
 
-  //   // Ottengo la data consegna formattata correttamente
-  //   const oldDataConsegna = String(row.DATA_CONSEGNA);
-  //   const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
-  //     oldDataConsegna.split("/");
-  //   const dataConsegna = new Date(
-  //     Date.UTC(
-  //       Number(yearDataConsegna),
-  //       Number(monthDataConsegna) - 1,
-  //       Number(dayDataConsegna)
-  //     )
-  //   );
+    //TODO: Da capire meglio che tipo di conversione viene fatta su questa colonna, inoltre se non è una data valida, do errore
+    //TODO: Devo fare anche dei controlli sui valori aspettati per ogni campo
+    const datetime = String(row.DATATIME);
+    // Separa la data e il tempo (usando lo slash come delimitatore)
+    const [datePart, timePart] = datetime.split("/");
 
-  //   // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
-  //   const impiantoCodice = String(row.PV).padStart(4, "0");
+    // Estrai anno, mese e giorno dalla parte della data
+    const yearDataCompetenza = datePart.substring(0, 4);
+    const monthDataCompetenza = datePart.substring(4, 6);
+    const dayDataCompetenza = datePart.substring(6, 8);
 
-  //   // Ottengo la quantità di consegnato nel formato corretto, pronto per l'inserimento nel DB
-  //   const consegnato =
-  //     parseFloat(String(row.CONSEGNATO).replace(",", ".")) / 1000;
+    // Estrai ore, minuti e secondi dalla parte dell'orario
+    const [hours, minutes, seconds] = timePart.split(":").map(Number);
 
-  //   // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+    // Crea l'oggetto Date completo in UTC
+    const dataTimestamp = new Date(
+      Date.UTC(
+        Number(yearDataCompetenza),
+        Number(monthDataCompetenza) - 1,
+        Number(dayDataCompetenza),
+        hours,
+        minutes,
+        seconds
+      )
+    );
 
-  //   // 1) Controllo se la quantità consegnata è minore di 0
-  //   if (consegnato < 0 || !consegnato) {
-  //     console.error(
-  //       "Il valore di consegnato contiene una quantità negativa o nulla: ",
-  //       row
-  //     );
-  //     continue;
-  //   }
+    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
+    // L'impianto è in questo formato: 00PV000705
+    const impiantoCodice = String(
+      Number(String(row.PV).substring(4, 10))
+    ).padStart(4, "0");
 
-  //   const art = sellinMap[prodotto];
+    console.log(impiantoCodice);
 
-  //   // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
-  //   if (!art) {
-  //     console.error(
-  //       "Il valore di prodotto non è presente nel database di Dicomi: ",
-  //       row
-  //     );
-  //     continue;
-  //   }
+    const indirizzo = String(row["INDIRIZZO PV"]);
+    const tipo = String(row["TIPO CARTA"]);
+    const cod_prodotto = String(row["COD.PROD"]);
+    const desc_prodotto = String(row["DESCR.PROD"]);
 
-  //   // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
-  //   if (!impiantiMap.includes(impiantoCodice)) {
-  //     console.error(
-  //       "Il valore di impianto non è presente nel database di Dicomi: ",
-  //       row
-  //     );
-  //     continue;
-  //   }
+    const volume = parseFloat(String(row.VOLUME).replace(",", "."));
+    const importo_accr = parseFloat(
+      String(row["IMPORTO ACCR"]).replace(",", ".")
+    );
+    const prz_accr = parseFloat(String(row["PRZ ACCR"]).replace(",", "."));
 
-  //   // Faccio l'upsert sul DB
-  //   await upsertConsegnato(
-  //     impiantoCodice,
-  //     prodotto,
-  //     dataConsegna,
-  //     art,
-  //     consegnato
-  //   );
-  // }
+    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+
+    const art = sellinMap[cod_prodotto];
+
+    // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
+    if (!art) {
+      console.error(
+        "Il valore di prodotto non è presente nel database di Dicomi: ",
+        row
+      );
+      continue;
+    }
+
+    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    if (!impiantiMap.includes(impiantoCodice)) {
+      console.error(
+        "Il valore di impianto non è presente nel database di Dicomi: ",
+        row
+      );
+      continue;
+    }
+
+    // Faccio l'upsert sul DB
+    await upsertCarteCredito(
+      trs,
+      dataTimestamp,
+      impiantoCodice,
+      indirizzo,
+      art,
+      cod_prodotto,
+      desc_prodotto,
+      tipo,
+      volume,
+      importo_accr,
+      prz_accr
+    );
+  }
 
   return true;
+}
+
+// Funzione per fare upsert riga per riga per le Carte Credito
+async function upsertCarteCredito(
+  trs: string,
+  dataTimestamp: Date,
+  impiantoCodice: string,
+  indirizzo: string,
+  art: string,
+  cod_prodotto: string,
+  desc_prodotto: string,
+  tipo: string,
+  volume: number,
+  importo_accr: number,
+  prz_accr: number
+) {
+  // try {
+  //   const pool = await getDatabasePool();
+  //   // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
+  //   // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+  //   const query = `
+  //       MERGE INTO ${ordinatoTable} AS target
+  //       USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
+  //         AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
+  //       ON (
+  //         target.ImpiantoCodice = source.ImpiantoCodice
+  //         AND target.Articolo = source.Articolo
+  //         AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
+  //       )
+  //       WHEN MATCHED THEN
+  //         UPDATE SET
+  //         QtaOrdinata = @QtaOrdinata,
+  //         DataModifica = GETDATE()
+  //       WHEN NOT MATCHED THEN
+  //           INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
+  //           VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
+  //     `;
+  //   const result = await pool
+  //     .request()
+  //     .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
+  //     .input("Articolo", sql.NVarChar, articolo)
+  //     .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
+  //     .input("QtaOrdinata", sql.Float, ordinato)
+  //     .query(query);
+  //   if (result.rowsAffected[0] > 0) {
+  //     logger.info(
+  //       `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+  //     );
+  //     return true;
+  //   } else {
+  //     logger.warn(
+  //       `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+  //     );
+  //     return false;
+  //   }
+  // } catch (err) {
+  //   logger.error(
+  //     `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
+  //     err
+  //   );
+  //   return false;
+  // }
 }
 
 // Funzione per elaborare il file di consegnato
