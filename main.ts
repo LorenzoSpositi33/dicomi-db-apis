@@ -16,6 +16,7 @@ const apiPort = process.env.DB_API_PORT;
 const concTable = process.env.TABLE_CONCORRENZA;
 const impiantiTable = process.env.TABLE_IMPIANTI;
 const consegnatoTable = process.env.TABLE_CONSEGNATO;
+const ordinatoTable = process.env.TABLE_ORDINATO;
 const artSellInTable = process.env.TABLE_ARTICOLI_SELLIN;
 const artTable = process.env.TABLE_ARTICOLI;
 const secretGen = process.env.SECRET_AUTH_KEY;
@@ -130,69 +131,286 @@ async function sellInMapping(): Promise<Record<string, string>> {
   return result;
 }
 
-// Funzione per fare upsert riga per riga per il Consegnato
-async function upsertConsegnato(
-  impiantoCodice: string,
-  ArticoloSellin: string,
-  dataConsegna: Date,
-  articolo: string,
-  consegnato: number
-) {
-  console.log(impiantoCodice, ArticoloSellin, dataConsegna, consegnato);
+async function articoliMapping(): Promise<String[]> {
+  let result: String[] = [];
 
+  try {
+    const pool = await getDatabasePool();
+
+    const query = `SELECT art.Articolo as art
+    
+    FROM ${artTable} AS art`;
+
+    result = (await pool.request().query(query)).recordset.map(
+      (item) => item.art
+    );
+  } catch (err) {
+    console.error(
+      `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
+      err
+    );
+  }
+
+  return result;
+}
+
+// Funzione per elaborare il file di ordinato
+async function elaboraOrdinato(
+  fileName: string,
+  results: any[],
+  fileHeaders: String[]
+) {
+  // const sellinMap = await sellInMapping();
+  const impiantiMap = await impiantiMapping();
+  const articoliMap = await articoliMapping();
+
+  const expectedHeaders = ["PV_NAME", "PROD_NAME", "VOL_ORDINATO"];
+
+  // 1) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    console.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+    return false;
+  }
+
+  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
+  // Va calcolata ed elaborata la data.
+  // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
+  // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
+  const dateMatch = fileName.match(/\d{8}/);
+
+  let dataOrdinato;
+
+  if (dateMatch) {
+    // dateMatch è un array, il primo elemento contiene la stringa trovata
+    const dateString = dateMatch[0]; // ad esempio "20250410"
+
+    // Se desideri formattarla in un formato diverso, ad esempio "YYYY-MM-DD",
+    // puoi estrarre anno, mese e giorno:
+    const year = dateString.substring(0, 4);
+    const month = dateString.substring(4, 6);
+    const day = dateString.substring(6, 8);
+
+    dataOrdinato = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
+    console.log("Data trovata:", dataOrdinato); // "2025-04-10"
+
+    // Verifica se è sabato (6) o domenica (0) e, in base al risultato, aggiungi i giorni necessari per passare a lunedì
+    const dayOfWeek = dataOrdinato.getUTCDay(); // getUTCDay() restituisce 0 per domenica, 6 per sabato
+    if (dayOfWeek === 6) {
+      // Se è sabato, aggiungi 2 giorni
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 2);
+      console.log("Rilevato SABATO, data convertita in: ", dataOrdinato);
+    } else if (dayOfWeek === 0) {
+      // Se è domenica, aggiungi 1 giorno
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 1);
+      console.log("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
+    }
+  } else {
+    console.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+
+    return false;
+  }
+
+  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+  for (const row of results) {
+    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
+    const impiantoCodice = String(row.PV_NAME).padStart(4, "0");
+    // Ottengo l'articolo
+    const articolo = String(row.PROD_NAME);
+    // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
+    const ordinato = parseFloat(String(row.VOL_ORDINATO).replace(",", "."));
+
+    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+    // 1) Controllo se la quantità ordinata è minore di 0
+    if (ordinato < 0 || !ordinato) {
+      console.error(
+        "Il valore di ordinato contiene una quantità negativa o nulla: ",
+        row
+      );
+      continue;
+    }
+    // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
+    if (!articoliMap.includes(articolo)) {
+      console.error(
+        "Il valore di articolo non è presente nel database di Dicomi: ",
+        row
+      );
+      continue;
+    }
+    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    if (!impiantiMap.includes(impiantoCodice)) {
+      console.error(
+        "Il valore di impianto non è presente nel database di Dicomi: ",
+        row
+      );
+      continue;
+    }
+
+    // Faccio l'upsert sul DB
+    await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato);
+  }
+
+  return true;
+}
+
+// Funzione per fare upsert riga per riga per il Consegnato
+async function upsertOrdinato(
+  impiantoCodice: string,
+  articolo: string,
+  dataOrdinato: Date,
+  ordinato: number
+) {
   //.toISOString().split("T")[0];
   try {
     const pool = await getDatabasePool();
-    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataConsegna):
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
     // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
     const query = `
-        MERGE INTO ${consegnatoTable} AS target
-        USING (VALUES (@ImpiantoCodice, @ArticoloSellin, @DataConsegna))
-          AS source (ImpiantoCodice, ArticoloSellin, DataConsegna)
+        MERGE INTO ${ordinatoTable} AS target
+        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
+          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
         ON (
           target.ImpiantoCodice = source.ImpiantoCodice
-          AND target.ArticoloSellin = source.ArticoloSellin
-          AND target.DataConsegna = source.DataConsegna
+          AND target.Articolo = source.Articolo
+          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
         )
         WHEN MATCHED THEN
           UPDATE SET
-          Articolo = @Articolo,
-          QtaConsegnata = @QtaConsegnata,
+          QtaOrdinata = @QtaOrdinata,
           DataModifica = GETDATE()
         WHEN NOT MATCHED THEN
-            INSERT (DataConsegna, ImpiantoCodice, Articolo, ArticoloSellin, QtaConsegnata)
-            VALUES (@DataConsegna, @ImpiantoCodice, @Articolo, @ArticoloSellin, @QtaConsegnata);
+            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
+            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
       `;
 
     const result = await pool
       .request()
       .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-      .input("ArticoloSellin", sql.NVarChar, ArticoloSellin)
-      .input("DataConsegna", sql.Date, dataConsegna)
       .input("Articolo", sql.NVarChar, articolo)
-      .input("QtaConsegnata", sql.Float, consegnato)
+      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
+      .input("QtaOrdinata", sql.Float, ordinato)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert eseguito con successo: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+        `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
       );
       return true;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+        `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
       );
       return false;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Consegnato: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`,
+      `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
       err
     );
     return false;
   }
 }
 
+// Funzione per elaborare il file di carte credito
+async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
+  // const sellinMap = await sellInMapping();
+  // const impiantiMap = await impiantiMapping();
+
+  const expectedHeaders = [
+    "TIPO TRS",
+    "DATATIME",
+    "PV",
+    "INDIRIZZO PV",
+    "TIPO CARTA",
+    "COD.PROD",
+    "DESCR.PROD",
+    "VOLUME",
+    "IMPORTO ACCR",
+    "PRZ ACCR",
+  ];
+
+  console.log(expectedHeaders);
+
+  // 1) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    console.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+    return false;
+  }
+
+  // // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+  // for (const row of results) {
+  //   // Ottengo il prodotto (ArticoloSellIn)
+  //   const prodotto = String(row.PRODOTTO);
+
+  //   // Ottengo la data consegna formattata correttamente
+  //   const oldDataConsegna = String(row.DATA_CONSEGNA);
+  //   const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
+  //     oldDataConsegna.split("/");
+  //   const dataConsegna = new Date(
+  //     Date.UTC(
+  //       Number(yearDataConsegna),
+  //       Number(monthDataConsegna) - 1,
+  //       Number(dayDataConsegna)
+  //     )
+  //   );
+
+  //   // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
+  //   const impiantoCodice = String(row.PV).padStart(4, "0");
+
+  //   // Ottengo la quantità di consegnato nel formato corretto, pronto per l'inserimento nel DB
+  //   const consegnato =
+  //     parseFloat(String(row.CONSEGNATO).replace(",", ".")) / 1000;
+
+  //   // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+
+  //   // 1) Controllo se la quantità consegnata è minore di 0
+  //   if (consegnato < 0 || !consegnato) {
+  //     console.error(
+  //       "Il valore di consegnato contiene una quantità negativa o nulla: ",
+  //       row
+  //     );
+  //     continue;
+  //   }
+
+  //   const art = sellinMap[prodotto];
+
+  //   // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
+  //   if (!art) {
+  //     console.error(
+  //       "Il valore di prodotto non è presente nel database di Dicomi: ",
+  //       row
+  //     );
+  //     continue;
+  //   }
+
+  //   // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+  //   if (!impiantiMap.includes(impiantoCodice)) {
+  //     console.error(
+  //       "Il valore di impianto non è presente nel database di Dicomi: ",
+  //       row
+  //     );
+  //     continue;
+  //   }
+
+  //   // Faccio l'upsert sul DB
+  //   await upsertConsegnato(
+  //     impiantoCodice,
+  //     prodotto,
+  //     dataConsegna,
+  //     art,
+  //     consegnato
+  //   );
+  // }
+
+  return true;
+}
+
+// Funzione per elaborare il file di consegnato
 async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   const sellinMap = await sellInMapping();
   const impiantiMap = await impiantiMapping();
@@ -217,9 +435,11 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
       oldDataConsegna.split("/");
     const dataConsegna = new Date(
-      Number(yearDataConsegna),
-      Number(monthDataConsegna) - 1,
-      Number(dayDataConsegna)
+      Date.UTC(
+        Number(yearDataConsegna),
+        Number(monthDataConsegna) - 1,
+        Number(dayDataConsegna)
+      )
     );
 
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
@@ -273,6 +493,67 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   return true;
 }
 
+// Funzione per fare upsert riga per riga per il Consegnato
+async function upsertConsegnato(
+  impiantoCodice: string,
+  ArticoloSellin: string,
+  dataConsegna: Date,
+  articolo: string,
+  consegnato: number
+) {
+  //.toISOString().split("T")[0];
+  try {
+    const pool = await getDatabasePool();
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataConsegna):
+    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+    const query = `
+        MERGE INTO ${consegnatoTable} AS target
+        USING (VALUES (@ImpiantoCodice, @ArticoloSellin, @DataConsegna))
+          AS source (ImpiantoCodice, ArticoloSellin, DataConsegna)
+        ON (
+          target.ImpiantoCodice = source.ImpiantoCodice
+          AND target.ArticoloSellin = source.ArticoloSellin
+          AND target.DataConsegna = source.DataConsegna
+        )
+        WHEN MATCHED THEN
+          UPDATE SET
+          Articolo = @Articolo,
+          QtaConsegnata = @QtaConsegnata,
+          DataModifica = GETDATE()
+        WHEN NOT MATCHED THEN
+            INSERT (DataConsegna, ImpiantoCodice, Articolo, ArticoloSellin, QtaConsegnata)
+            VALUES (@DataConsegna, @ImpiantoCodice, @Articolo, @ArticoloSellin, @QtaConsegnata);
+      `;
+
+    const result = await pool
+      .request()
+      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
+      .input("ArticoloSellin", sql.NVarChar, ArticoloSellin)
+      .input("DataConsegna", sql.Date, dataConsegna)
+      .input("Articolo", sql.NVarChar, articolo)
+      .input("QtaConsegnata", sql.Float, consegnato)
+      .query(query);
+
+    if (result.rowsAffected[0] > 0) {
+      logger.info(
+        `Upsert eseguito con successo: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+      );
+      return true;
+    } else {
+      logger.warn(
+        `Nessuna riga è stata aggiornata/inserita: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+      );
+      return false;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante l'upsert della riga di Consegnato: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`,
+      err
+    );
+    return false;
+  }
+}
+
 // Confronto contenuto array, ritorna true se sono uguali a livello di contenuti, oppure false
 async function equalList(list1: String[], list2: String[]): Promise<boolean> {
   return (
@@ -283,7 +564,7 @@ async function equalList(list1: String[], list2: String[]): Promise<boolean> {
   );
 }
 
-async function moveFile(status: boolean, filePath: string) {
+async function moveFile(status: boolean, filePath: string, fileName?: string) {
   // Se status è vero, usa la cartella OK, altrimenti quella ERR
 
   const targetDirectory = status
@@ -302,8 +583,12 @@ async function moveFile(status: boolean, filePath: string) {
     .slice(0, 15) // "20250407T131415"
     .replace("T", "_"); // "20250407_131415"
 
+  if (!fileName) {
+    fileName = baseName;
+  }
+
   // Costruisci il nuovo nome del file
-  const newFileName = `${baseName}_${timestamp}${ext}`;
+  const newFileName = `${timestamp}_${fileName}${ext}`;
   const targetPath = path.join(targetDirectory, newFileName);
 
   try {
@@ -343,6 +628,9 @@ async function controlloFiles() {
               .pipe(csv({ separator: ";" }))
               .on("headers", (headers) => {
                 fileHeaders = headers;
+
+                // Rimuovo eventuali headers vuoti
+                fileHeaders = fileHeaders.filter((item) => item !== "");
               })
               .on("data", (row) => {
                 // Accumula ogni riga
@@ -373,10 +661,36 @@ async function controlloFiles() {
 
               await moveFile(
                 await elaboraConsegnato(results, fileHeaders),
-                filePath
+                filePath,
+                "consegnato"
               );
 
               break;
+
+            // Il file è "ORDINATO"
+            case /ordinato/i.test(file):
+              console.log("File riconosciuto come ORDINATO: ", file);
+
+              await moveFile(
+                await elaboraOrdinato(file, results, fileHeaders),
+                filePath,
+                "ordinato"
+              );
+
+              break;
+
+            // Il file è "CARTE CREDITO"
+            case /utx_dicomi/i.test(file):
+              console.log("File riconosciuto come CARTE CREDITO: ", file);
+
+              await moveFile(
+                await elaboraCarteCredito(results, fileHeaders),
+                filePath,
+                "utx_dicomi"
+              );
+
+              break;
+
             // Il file non è stato riconosciuto
             default:
               console.log("File non riconosciuto: ", file);
