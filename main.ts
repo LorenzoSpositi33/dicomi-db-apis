@@ -17,6 +17,7 @@ const concTable = process.env.TABLE_CONCORRENZA;
 const impiantiTable = process.env.TABLE_IMPIANTI;
 const consegnatoTable = process.env.TABLE_CONSEGNATO;
 const ordinatoTable = process.env.TABLE_ORDINATO;
+const carteCreditoTable = process.env.TABLE_CARTE_CREDITO;
 const artSellInTable = process.env.TABLE_ARTICOLI_SELLIN;
 const artTable = process.env.TABLE_ARTICOLI;
 const secretGen = process.env.SECRET_AUTH_KEY;
@@ -376,8 +377,6 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
       Number(String(row.PV).substring(4, 10))
     ).padStart(4, "0");
 
-    console.log(impiantoCodice);
-
     const indirizzo = String(row["INDIRIZZO PV"]);
     const tipo = String(row["TIPO CARTA"]);
     const cod_prodotto = String(row["COD.PROD"]);
@@ -444,52 +443,71 @@ async function upsertCarteCredito(
   importo_accr: number,
   prz_accr: number
 ) {
-  // try {
-  //   const pool = await getDatabasePool();
-  //   // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
-  //   // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
-  //   const query = `
-  //       MERGE INTO ${ordinatoTable} AS target
-  //       USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
-  //         AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
-  //       ON (
-  //         target.ImpiantoCodice = source.ImpiantoCodice
-  //         AND target.Articolo = source.Articolo
-  //         AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
-  //       )
-  //       WHEN MATCHED THEN
-  //         UPDATE SET
-  //         QtaOrdinata = @QtaOrdinata,
-  //         DataModifica = GETDATE()
-  //       WHEN NOT MATCHED THEN
-  //           INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
-  //           VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
-  //     `;
-  //   const result = await pool
-  //     .request()
-  //     .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-  //     .input("Articolo", sql.NVarChar, articolo)
-  //     .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
-  //     .input("QtaOrdinata", sql.Float, ordinato)
-  //     .query(query);
-  //   if (result.rowsAffected[0] > 0) {
-  //     logger.info(
-  //       `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-  //     );
-  //     return true;
-  //   } else {
-  //     logger.warn(
-  //       `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-  //     );
-  //     return false;
-  //   }
-  // } catch (err) {
-  //   logger.error(
-  //     `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
-  //     err
-  //   );
-  //   return false;
-  // }
+  try {
+    //TODO: Da capire se va bene l'upsert o è meglio fare una delete e importare tutto nuovamente.
+    const pool = await getDatabasePool();
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
+    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+    const query = `
+          MERGE INTO ${carteCreditoTable} AS target
+          USING (VALUES (@TipoTrs, @DataOraTransazione, @DataCompetenza, @ImpiantoCodice, @ArticoloSellin, @TipoCarta))
+            AS source (TipoTrs, DataOraTransazione, DataCompetenza, ImpiantoCodice, ArticoloSellin, TipoCarta)
+          ON (
+            target.TipoTrs = source.TipoTrs
+            AND target.DataOraTransazione = source.DataOraTransazione
+            AND target.DataCompetenza = source.DataCompetenza
+            AND target.ImpiantoCodice = source.ImpiantoCodice
+            AND target.ArticoloSellin = source.ArticoloSellin
+            AND target.TipoCarta = source.TipoCarta
+          )
+          WHEN MATCHED THEN
+            UPDATE SET
+            ImpiantoDescrizione = @ImpiantoDescrizione,
+            Articolo = @Articolo,
+            ArticoloDescrizione = @ArticoloDescrizione,
+            Volume = @Volume,
+            ImportoAccr = @ImportoAccr,
+            PrezzoAccr = @PrezzoAccr,
+            DataModifica = GETDATE()
+          WHEN NOT MATCHED THEN
+              INSERT (TipoTrs, DataOraTransazione, DataCompetenza, ImpiantoCodice, ImpiantoDescrizione, Articolo, ArticoloSellin, ArticoloDescrizione, TipoCarta, Volume, ImportoAccr, PrezzoAccr)
+              VALUES (@TipoTrs, @DataOraTransazione, @DataCompetenza, @ImpiantoCodice, @ImpiantoDescrizione, @Articolo, @ArticoloSellin, @ArticoloDescrizione, @TipoCarta, @Volume, @ImportoAccr, @PrezzoAccr);
+        `;
+
+    const result = await pool
+      .request()
+      .input("TipoTrs", sql.NVarChar, trs)
+      .input("DataOraTransazione", sql.DateTime, dataTimestamp)
+      .input("DataCompetenza", sql.Date, dataTimestamp)
+      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
+      .input("ImpiantoDescrizione", sql.NVarChar, indirizzo)
+      .input("Articolo", sql.NVarChar, art)
+      .input("ArticoloSellin", sql.NVarChar, cod_prodotto)
+      .input("ArticoloDescrizione", sql.NVarChar, desc_prodotto)
+      .input("TipoCarta", sql.NVarChar, tipo)
+      .input("Volume", sql.Float, volume)
+      .input("ImportoAccr", sql.Float, importo_accr)
+      .input("PrezzoAccr", sql.Float, prz_accr)
+      .query(query);
+
+    if (result.rowsAffected[0] > 0) {
+      // logger.info(
+      //   `Upsert eseguito con successo: ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+      // );
+      return true;
+    } else {
+      logger.warn(
+        `Nessuna riga è stata aggiornata/inserita: ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+      );
+      return false;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante l'upsert della riga di Carte Credito: ${carteCreditoTable}: `,
+      err
+    );
+    return false;
+  }
 }
 
 // Funzione per elaborare il file di consegnato
