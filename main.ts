@@ -97,8 +97,33 @@ async function impiantiMapping(): Promise<String[]> {
       (item) => item.imp
     );
   } catch (err) {
-    console.error(
-      `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
+    logger.error(
+      `Errore nell'ottenere l'elenco degli impianti dicomi, query`,
+      err
+    );
+  }
+
+  return result;
+}
+
+async function impiantiCartePromoMapping(): Promise<String[]> {
+  let result: String[] = [];
+
+  try {
+    const pool = await getDatabasePool();
+
+    const query = `SELECT imp.ImpiantoCodice AS imp
+    
+    FROM ${impiantiTable} AS imp
+    
+    WHERE imp.CartePromoSiNo = 1`;
+
+    result = (await pool.request().query(query)).recordset.map(
+      (item) => item.imp
+    );
+  } catch (err) {
+    logger.error(
+      `Errore nell'ottenere l'elenco degli impianti dicomi abilitati alle carte promo, query`,
       err
     );
   }
@@ -128,7 +153,7 @@ async function sellInMapping(): Promise<Record<string, string>> {
 
     result = mapping;
   } catch (err) {
-    console.error(
+    logger.error(
       `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
       err
     );
@@ -151,7 +176,7 @@ async function articoliMapping(): Promise<String[]> {
       (item) => item.art
     );
   } catch (err) {
-    console.error(
+    logger.error(
       `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
       err
     );
@@ -207,7 +232,7 @@ async function scontoFissoMapping(
 
     result = mapping;
   } catch (err) {
-    console.error(
+    logger.error(
       `Errore nell'ottenere l'elenco degli impianti con sconto fisso`,
       err
     );
@@ -216,9 +241,385 @@ async function scontoFissoMapping(
   return result;
 }
 
+// GESTIONE FILE: CONSEGNATO
+async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+
+  const sellinMap = await sellInMapping();
+  const impiantiMap = await impiantiMapping();
+
+  const expectedHeaders = ["PV", "PRODOTTO", "DATA_CONSEGNA", "CONSEGNATO"];
+
+  // 1) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    logger.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+    return false;
+  }
+
+  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+  for (const row of results) {
+    righeElaborate += 1;
+
+    // Ottengo il prodotto (ArticoloSellIn)
+    const prodotto = String(row.PRODOTTO);
+
+    // Ottengo la data consegna formattata correttamente
+    const oldDataConsegna = String(row.DATA_CONSEGNA);
+    const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
+      oldDataConsegna.split("/");
+    const dataConsegna = new Date(
+      Date.UTC(
+        Number(yearDataConsegna),
+        Number(monthDataConsegna) - 1,
+        Number(dayDataConsegna)
+      )
+    );
+
+    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
+    const impiantoCodice = String(row.PV).padStart(4, "0");
+
+    // Ottengo la quantità di consegnato nel formato corretto, pronto per l'inserimento nel DB
+    const consegnato =
+      parseFloat(String(row.CONSEGNATO).replace(",", ".")) / 1000;
+
+    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+
+    // 1) Controllo se la quantità consegnata è minore di 0
+    if (consegnato < 0 || !consegnato) {
+      logger.error(
+        "Il valore di consegnato contiene una quantità negativa o nulla: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+
+    const art = sellinMap[prodotto];
+
+    // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
+    if (!art) {
+      logger.error(
+        "Il valore di prodotto non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+
+    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    if (!impiantiMap.includes(impiantoCodice)) {
+      logger.error(
+        "Il valore di impianto non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+
+    // Faccio l'upsert sul DB
+    /*
+    Codice 0: Ho inserito / modificato la riga
+    Codice 1: La riga è andata in errore
+    Codice 2: Non ho apportato modifiche
+    */
+    switch (
+      await upsertConsegnato(
+        impiantoCodice,
+        prodotto,
+        dataConsegna,
+        art,
+        consegnato
+      )
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
+  }
+
+  //Finito il file, stampo il log
+
+  logger.info(`Il file Consegnato è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
+
+  return true;
+}
+async function upsertConsegnato(
+  impiantoCodice: string,
+  ArticoloSellin: string,
+  dataConsegna: Date,
+  articolo: string,
+  consegnato: number
+) {
+  //.toISOString().split("T")[0];
+  try {
+    const pool = await getDatabasePool();
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataConsegna):
+    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+    const query = `
+        MERGE INTO ${consegnatoTable} AS target
+        USING (VALUES (@ImpiantoCodice, @ArticoloSellin, @DataConsegna))
+          AS source (ImpiantoCodice, ArticoloSellin, DataConsegna)
+        ON (
+          target.ImpiantoCodice = source.ImpiantoCodice
+          AND target.ArticoloSellin = source.ArticoloSellin
+          AND target.DataConsegna = source.DataConsegna
+        )
+        WHEN MATCHED THEN
+          UPDATE SET
+          Articolo = @Articolo,
+          QtaConsegnata = @QtaConsegnata,
+          DataModifica = GETDATE()
+        WHEN NOT MATCHED THEN
+            INSERT (DataConsegna, ImpiantoCodice, Articolo, ArticoloSellin, QtaConsegnata)
+            VALUES (@DataConsegna, @ImpiantoCodice, @Articolo, @ArticoloSellin, @QtaConsegnata);
+      `;
+
+    const result = await pool
+      .request()
+      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
+      .input("ArticoloSellin", sql.NVarChar, ArticoloSellin)
+      .input("DataConsegna", sql.Date, dataConsegna)
+      .input("Articolo", sql.NVarChar, articolo)
+      .input("QtaConsegnata", sql.Float, consegnato)
+      .query(query);
+
+    if (result.rowsAffected[0] > 0) {
+      logger.info(
+        `Upsert effettuato per ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+      );
+      return 0;
+    } else {
+      logger.warn(
+        `Nessun upsert effettuato per ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+      );
+      return 2;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante l'upsert per ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`,
+      err
+    );
+    return 1;
+  }
+}
+
+// GESTIONE FILE: ORDINATO
+async function elaboraOrdinato(
+  fileName: string,
+  results: any[],
+  fileHeaders: String[]
+) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+
+  const impiantiMap = await impiantiMapping();
+  const articoliMap = await articoliMapping();
+
+  const expectedHeaders = ["PV_NAME", "PROD_NAME", "VOL_ORDINATO"];
+
+  // 1) Controllo che gli header del file siano corretti
+  if (!(await equalList(fileHeaders, expectedHeaders))) {
+    logger.error(
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+    return false;
+  }
+
+  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
+  // Va calcolata ed elaborata la data.
+  // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
+  // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
+  const dateMatch = fileName.match(/\d{8}/);
+
+  let dataOrdinato;
+
+  if (dateMatch) {
+    // dateMatch è un array, il primo elemento contiene la stringa trovata
+    const dateString = dateMatch[0]; // ad esempio "20250410"
+
+    // Se desideri formattarla in un formato diverso, ad esempio "YYYY-MM-DD",
+    // puoi estrarre anno, mese e giorno:
+    const year = dateString.substring(0, 4);
+    const month = dateString.substring(4, 6);
+    const day = dateString.substring(6, 8);
+
+    dataOrdinato = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
+    logger.info("Data trovata:", dataOrdinato); // "2025-04-10"
+
+    // Verifica se è sabato (6) o domenica (0) e, in base al risultato, aggiungi i giorni necessari per passare a lunedì
+    const dayOfWeek = dataOrdinato.getUTCDay(); // getUTCDay() restituisce 0 per domenica, 6 per sabato
+    if (dayOfWeek === 6) {
+      // Se è sabato, aggiungi 2 giorni
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 2);
+      logger.info("Rilevato SABATO, data convertita in: ", dataOrdinato);
+    } else if (dayOfWeek === 0) {
+      // Se è domenica, aggiungi 1 giorno
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 1);
+      logger.info("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
+    }
+  } else {
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+
+    return false;
+  }
+
+  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+  for (const row of results) {
+    righeElaborate += 1;
+
+    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
+    const impiantoCodice = String(row.PV_NAME).padStart(4, "0");
+    // Ottengo l'articolo
+    const articolo = String(row.PROD_NAME);
+    // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
+    const ordinato = parseFloat(String(row.VOL_ORDINATO).replace(",", "."));
+
+    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
+    // 1) Controllo se la quantità ordinata è minore di 0
+    if (ordinato < 0 || !ordinato) {
+      logger.error(
+        "Il valore di ordinato contiene una quantità negativa o nulla: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+    // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
+    if (!articoliMap.includes(articolo)) {
+      logger.error(
+        "Il valore di articolo non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    if (!impiantiMap.includes(impiantoCodice)) {
+      logger.error(
+        "Il valore di impianto non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+
+    // Faccio l'upsert sul DB
+    /*
+    Codice 0: Ho inserito / modificato la riga
+    Codice 1: La riga è andata in errore
+    Codice 2: Non ho apportato modifiche
+    */
+    switch (
+      await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato)
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
+  }
+
+  //Finito il file, stampo il log
+  logger.info(`Il file Ordinato è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
+
+  return true;
+}
+async function upsertOrdinato(
+  impiantoCodice: string,
+  articolo: string,
+  dataOrdinato: Date,
+  ordinato: number
+) {
+  //.toISOString().split("T")[0];
+  try {
+    const pool = await getDatabasePool();
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
+    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+    const query = `
+        MERGE INTO ${ordinatoTable} AS target
+        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
+          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
+        ON (
+          target.ImpiantoCodice = source.ImpiantoCodice
+          AND target.Articolo = source.Articolo
+          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
+        )
+        WHEN MATCHED THEN
+          UPDATE SET
+          QtaOrdinata = @QtaOrdinata,
+          DataModifica = GETDATE()
+        WHEN NOT MATCHED THEN
+            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
+            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
+      `;
+
+    const result = await pool
+      .request()
+      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
+      .input("Articolo", sql.NVarChar, articolo)
+      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
+      .input("QtaOrdinata", sql.Float, ordinato)
+      .query(query);
+
+    if (result.rowsAffected[0] > 0) {
+      logger.info(
+        `Upsert effettuato per ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+      );
+      return 0;
+    } else {
+      logger.warn(
+        `Nessun upsert effettuato per ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+      );
+      return 2;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante l'upsert per ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
+      err
+    );
+    return 1;
+  }
+}
+
 // GESTIONE FILE: CARTE PROMO
 async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+  let righeNonAbilitate = 0;
+
   const impiantiMap = await impiantiMapping();
+  const impiantiAbilitatiMap = await impiantiCartePromoMapping();
+
   const tipoTrsList = [
     "TRXATTIVE",
     "BATTESIMI",
@@ -231,7 +632,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
 
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
+    logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
     return false;
@@ -239,6 +640,8 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
 
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
+    righeElaborate += 1;
+
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
 
@@ -260,28 +663,63 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
 
     // 1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
-      console.error(
+      logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
         row
       );
+
+      righeErrore += 1;
       continue;
     }
 
     // 2) Controllo se il campo TipoTrs è valido
     if (!tipoTrsList.includes(tipo)) {
-      console.error(
+      logger.error(
         "Il valore di Tipo Trs non è presente nella lista dichiarata: ",
         row
       );
+
+      righeErrore += 1;
       continue;
     }
 
+    // 3 WARNING) Controllo se l'impianto è abilitato alle carte promo, in base all'anagrafica nel DB
+    if (!impiantiAbilitatiMap.includes(impiantoCodice)) {
+      logger.warn(
+        "Il valore di impianto non è presente tra gli impianti abilitati alle carte promo nel database di Dicomi: ",
+        row
+      );
+      righeNonAbilitate += 1;
+    }
+
+    // Nel codice di DM. veniva controllata la data (non vuota), non ho bisogno di farlo, se la data non è valida da errore il DB
+
     //TODO: Nel codice viene  fatta una delete basata sul codice impianto e sulla data, e poi vengono aggiunte le righe con insert
-    // console.log(impiantoCodice, tipo, dataCartePromo, totale);
+    // logger.info(impiantoCodice, tipo, dataCartePromo, totale);
 
     // Faccio l'upsert sul DB
-    await upsertCartePromo(impiantoCodice, tipo, dataCartePromo, totale);
+    switch (
+      await upsertCartePromo(impiantoCodice, tipo, dataCartePromo, totale)
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
   }
+
+  //Finito il file, stampo il log
+  logger.info(`Il file Carte Promo è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe con impianti non abilitati: ${righeNonAbilitate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
 
   return true;
 }
@@ -388,381 +826,21 @@ async function upsertCartePromo(
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert eseguito con successo: ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
+        `Upsert effettuato per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
       );
-      return true;
+      return 0;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
+        `Nessun upsert effettuato per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`
       );
-      return false;
+      return 2;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Ordinato: ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`,
+      `Errore durante l'upsert per ${cartePromoTable}: ${impiantoCodice}, ${tipo}, ${dataCartePromo}, ${valore}`,
       err
     );
-    return false;
-  }
-}
-
-// GESTIONE FILE: ORDINATO
-async function elaboraOrdinato(
-  fileName: string,
-  results: any[],
-  fileHeaders: String[]
-) {
-  const impiantiMap = await impiantiMapping();
-  const articoliMap = await articoliMapping();
-
-  const expectedHeaders = ["PV_NAME", "PROD_NAME", "VOL_ORDINATO"];
-
-  // 1) Controllo che gli header del file siano corretti
-  if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
-    );
-    return false;
-  }
-
-  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
-  // Va calcolata ed elaborata la data.
-  // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
-  // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
-  const dateMatch = fileName.match(/\d{8}/);
-
-  let dataOrdinato;
-
-  if (dateMatch) {
-    // dateMatch è un array, il primo elemento contiene la stringa trovata
-    const dateString = dateMatch[0]; // ad esempio "20250410"
-
-    // Se desideri formattarla in un formato diverso, ad esempio "YYYY-MM-DD",
-    // puoi estrarre anno, mese e giorno:
-    const year = dateString.substring(0, 4);
-    const month = dateString.substring(4, 6);
-    const day = dateString.substring(6, 8);
-
-    dataOrdinato = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    ); // Nota: i mesi in JS sono zero-indexed
-    console.log("Data trovata:", dataOrdinato); // "2025-04-10"
-
-    // Verifica se è sabato (6) o domenica (0) e, in base al risultato, aggiungi i giorni necessari per passare a lunedì
-    const dayOfWeek = dataOrdinato.getUTCDay(); // getUTCDay() restituisce 0 per domenica, 6 per sabato
-    if (dayOfWeek === 6) {
-      // Se è sabato, aggiungi 2 giorni
-      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 2);
-      console.log("Rilevato SABATO, data convertita in: ", dataOrdinato);
-    } else if (dayOfWeek === 0) {
-      // Se è domenica, aggiungi 1 giorno
-      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 1);
-      console.log("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
-    }
-  } else {
-    console.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
-
-    return false;
-  }
-
-  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
-  for (const row of results) {
-    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
-    const impiantoCodice = String(row.PV_NAME).padStart(4, "0");
-    // Ottengo l'articolo
-    const articolo = String(row.PROD_NAME);
-    // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
-    const ordinato = parseFloat(String(row.VOL_ORDINATO).replace(",", "."));
-
-    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
-    // 1) Controllo se la quantità ordinata è minore di 0
-    if (ordinato < 0 || !ordinato) {
-      console.error(
-        "Il valore di ordinato contiene una quantità negativa o nulla: ",
-        row
-      );
-      continue;
-    }
-    // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
-    if (!articoliMap.includes(articolo)) {
-      console.error(
-        "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
-      );
-      continue;
-    }
-    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
-    if (!impiantiMap.includes(impiantoCodice)) {
-      console.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
-      );
-      continue;
-    }
-
-    // Faccio l'upsert sul DB
-    await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato);
-  }
-
-  return true;
-}
-async function upsertOrdinato(
-  impiantoCodice: string,
-  articolo: string,
-  dataOrdinato: Date,
-  ordinato: number
-) {
-  //.toISOString().split("T")[0];
-  try {
-    const pool = await getDatabasePool();
-    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
-    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
-    const query = `
-        MERGE INTO ${ordinatoTable} AS target
-        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
-          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
-        ON (
-          target.ImpiantoCodice = source.ImpiantoCodice
-          AND target.Articolo = source.Articolo
-          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
-        )
-        WHEN MATCHED THEN
-          UPDATE SET
-          QtaOrdinata = @QtaOrdinata,
-          DataModifica = GETDATE()
-        WHEN NOT MATCHED THEN
-            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
-            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
-      `;
-
-    const result = await pool
-      .request()
-      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-      .input("Articolo", sql.NVarChar, articolo)
-      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
-      .input("QtaOrdinata", sql.Float, ordinato)
-      .query(query);
-
-    if (result.rowsAffected[0] > 0) {
-      logger.info(
-        `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-      );
-      return true;
-    } else {
-      logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-      );
-      return false;
-    }
-  } catch (err) {
-    logger.error(
-      `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
-      err
-    );
-    return false;
-  }
-}
-
-// GESTIONE FILE: LISTINO DISTRIBUTORI
-async function elaboraListDistr(
-  fileName: string,
-  results: any[],
-  fileHeaders: String[]
-) {
-  const articoliMap = await articoliMapping();
-
-  const expectedHeaders = [
-    "PV",
-    "PRODOTTO",
-    "PREZZO_SERV",
-    "SCONTO_SERV",
-    "PREZZO_SELF",
-    "SCONTO_SELF",
-    "PREZZO_OPT",
-    "SCONTO_OPT",
-    "STACCO",
-    "ORDINATO",
-    "NOTE",
-  ];
-
-  // 1) Controllo che gli header del file siano corretti
-  if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
-    );
-    return false;
-  }
-
-  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
-  // Va calcolata ed elaborata la data.
-  // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
-  // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
-  const dateMatch = fileName.match(/\d{8}/);
-
-  let dataListDistr;
-
-  if (dateMatch) {
-    // dateMatch è un array, il primo elemento contiene la stringa trovata
-    const dateString = dateMatch[0]; // ad esempio "20250410"
-
-    // Se desideri formattarla in un formato diverso, ad esempio "YYYY-MM-DD",
-    // puoi estrarre anno, mese e giorno:
-    const year = dateString.substring(0, 4);
-    const month = dateString.substring(4, 6);
-    const day = dateString.substring(6, 8);
-
-    dataListDistr = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    ); // Nota: i mesi in JS sono zero-indexed
-    console.log("Data trovata:", dataListDistr); // "2025-04-10"
-  } else {
-    console.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
-
-    return false;
-  }
-
-  const scontoFissoMap = await scontoFissoMapping(dataListDistr);
-
-  console.log(scontoFissoMap);
-
-  // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
-  for (const row of results) {
-    // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
-    const impiantoCodice = String(row.PV).padStart(4, "0");
-    // Ottengo l'articolo
-    const articolo = String(row.PRODOTTO);
-
-    // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
-    const prezzo_serv = parseFloat(String(row.PREZZO_SERV).replace(",", "."));
-    const sconto_serv = parseFloat(String(row.SCONTO_SERV).replace(",", "."));
-    const prezzo_self = parseFloat(String(row.PREZZO_SELF).replace(",", "."));
-    const sconto_self = parseFloat(String(row.SCONTO_SELF).replace(",", "."));
-    const prezzo_opt = parseFloat(String(row.PREZZO_OPT).replace(",", "."));
-    const sconto_opt = parseFloat(String(row.SCONTO_OPT).replace(",", "."));
-    const stacco = parseFloat(String(row.STACCO).replace(",", "."));
-    const ordinato = parseFloat(String(row.ORDINATO).replace(",", "."));
-
-    const note = String(row.NOTE);
-
-    // Ottengo il valore "scontoFissoSiNo"
-    const scontoFissoImpianto = scontoFissoMap[impiantoCodice];
-
-    let scontoFisso;
-
-    if (scontoFissoImpianto) {
-      scontoFisso = scontoFissoImpianto[articolo] || false;
-    } else {
-      scontoFisso = false;
-    }
-
-    // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
-
-    // 1) Controllo sullo sconto fisso, solo per log
-    if (scontoFisso) {
-      console.error("Impianto a sconto fisso: ", row);
-    }
-    // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
-    if (!articoliMap.includes(articolo)) {
-      console.error(
-        "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
-      );
-      continue;
-    }
-
-    //TODO: In questa parte, il codice fa DELETE e INSERT
-    //   // 1) Controllo se la quantità ordinata è minore di 0
-    //   if (ordinato < 0 || !ordinato) {
-    //     console.error(
-    //       "Il valore di ordinato contiene una quantità negativa o nulla: ",
-    //       row
-    //     );
-    //     continue;
-    //   }
-
-    //   // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
-    //   if (!impiantiMap.includes(impiantoCodice)) {
-    //     console.error(
-    //       "Il valore di impianto non è presente nel database di Dicomi: ",
-    //       row
-    //     );
-    //     continue;
-    //   }
-
-    console.log(
-      impiantoCodice,
-      articolo,
-      prezzo_serv,
-      sconto_serv,
-      prezzo_self,
-      sconto_self,
-      prezzo_opt,
-      sconto_opt,
-      stacco,
-      ordinato,
-      note,
-      scontoFisso
-    );
-    //   // Faccio l'upsert sul DB
-    //   await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato);
-  }
-
-  return true;
-}
-async function upsertListDistr(
-  impiantoCodice: string,
-  articolo: string,
-  dataOrdinato: Date,
-  ordinato: number
-) {
-  //.toISOString().split("T")[0];
-  try {
-    const pool = await getDatabasePool();
-    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
-    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
-    const query = `
-        MERGE INTO ${ordinatoTable} AS target
-        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
-          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
-        ON (
-          target.ImpiantoCodice = source.ImpiantoCodice
-          AND target.Articolo = source.Articolo
-          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
-        )
-        WHEN MATCHED THEN
-          UPDATE SET
-          QtaOrdinata = @QtaOrdinata,
-          DataModifica = GETDATE()
-        WHEN NOT MATCHED THEN
-            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
-            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
-      `;
-
-    const result = await pool
-      .request()
-      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-      .input("Articolo", sql.NVarChar, articolo)
-      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
-      .input("QtaOrdinata", sql.Float, ordinato)
-      .query(query);
-
-    if (result.rowsAffected[0] > 0) {
-      logger.info(
-        `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-      );
-      return true;
-    } else {
-      logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
-      );
-      return false;
-    }
-  } catch (err) {
-    logger.error(
-      `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
-      err
-    );
-    return false;
+    return 1;
   }
 }
 
@@ -788,7 +866,7 @@ async function elaboraTradingArea(
 
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
+    logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
     return false;
@@ -815,9 +893,9 @@ async function elaboraTradingArea(
     dataTradingArea = new Date(
       Date.UTC(Number(year), Number(month) - 1, Number(day))
     ); // Nota: i mesi in JS sono zero-indexed
-    console.log("Data trovata:", dataTradingArea); // "2025-04-10"
+    logger.info("Data trovata:", dataTradingArea); // "2025-04-10"
   } else {
-    console.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
 
     return false;
   }
@@ -841,7 +919,7 @@ async function elaboraTradingArea(
     // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
     // 1) Controllo se l'articolo è valido, in base all'anagrafica nel DB
     if (!articoliMap.includes(articolo)) {
-      console.error(
+      logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
         row
       );
@@ -849,7 +927,7 @@ async function elaboraTradingArea(
     }
     // 2) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
-      console.error(
+      logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
         row
       );
@@ -858,7 +936,7 @@ async function elaboraTradingArea(
 
     //TODO: La logica del codice è delete e poi insert, bisogna capire se è necessario o è meglio fare altro
 
-    // console.log(
+    // logger.info(
     //   dataTradingArea,
     //   impiantoCodice,
     //   bandiera,
@@ -977,7 +1055,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
+    logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
     return false;
@@ -1036,7 +1114,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
     // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
     if (!art) {
-      console.error(
+      logger.error(
         "Il valore di prodotto non è presente nel database di Dicomi: ",
         row
       );
@@ -1045,7 +1123,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
     // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
-      console.error(
+      logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
         row
       );
@@ -1150,142 +1228,203 @@ async function upsertCarteCredito(
   }
 }
 
-// GESTIONE FILE: CONSEGNATO
-async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
-  const sellinMap = await sellInMapping();
-  const impiantiMap = await impiantiMapping();
+// GESTIONE FILE: LISTINO DISTRIBUTORI
+async function elaboraListDistr(
+  fileName: string,
+  results: any[],
+  fileHeaders: String[]
+) {
+  const articoliMap = await articoliMapping();
 
-  const expectedHeaders = ["PV", "PRODOTTO", "DATA_CONSEGNA", "CONSEGNATO"];
+  const expectedHeaders = [
+    "PV",
+    "PRODOTTO",
+    "PREZZO_SERV",
+    "SCONTO_SERV",
+    "PREZZO_SELF",
+    "SCONTO_SELF",
+    "PREZZO_OPT",
+    "SCONTO_OPT",
+    "STACCO",
+    "ORDINATO",
+    "NOTE",
+  ];
 
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
-    console.error(
+    logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
     return false;
   }
 
+  // 2) Controllo che nel nome del file ci sia un valore di data valida, da usare come data ordinato
+  // Va calcolata ed elaborata la data.
+  // La data viene presa dal file, se è Sabato o Domenica, deve diventare il prossimo Lunedì (aggiungo 2 o 1 giorno)
+  // Utilizziamo una regex per trovare una sequenza esattamente di 8 cifre
+  const dateMatch = fileName.match(/\d{8}/);
+
+  let dataListDistr;
+
+  if (dateMatch) {
+    // dateMatch è un array, il primo elemento contiene la stringa trovata
+    const dateString = dateMatch[0]; // ad esempio "20250410"
+
+    // Se desideri formattarla in un formato diverso, ad esempio "YYYY-MM-DD",
+    // puoi estrarre anno, mese e giorno:
+    const year = dateString.substring(0, 4);
+    const month = dateString.substring(4, 6);
+    const day = dateString.substring(6, 8);
+
+    dataListDistr = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
+    logger.info("Data trovata:", dataListDistr); // "2025-04-10"
+  } else {
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+
+    return false;
+  }
+
+  const scontoFissoMap = await scontoFissoMapping(dataListDistr);
+
+  logger.info(scontoFissoMap);
+
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
-    // Ottengo il prodotto (ArticoloSellIn)
-    const prodotto = String(row.PRODOTTO);
-
-    // Ottengo la data consegna formattata correttamente
-    const oldDataConsegna = String(row.DATA_CONSEGNA);
-    const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
-      oldDataConsegna.split("/");
-    const dataConsegna = new Date(
-      Date.UTC(
-        Number(yearDataConsegna),
-        Number(monthDataConsegna) - 1,
-        Number(dayDataConsegna)
-      )
-    );
-
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
+    // Ottengo l'articolo
+    const articolo = String(row.PRODOTTO);
 
-    // Ottengo la quantità di consegnato nel formato corretto, pronto per l'inserimento nel DB
-    const consegnato =
-      parseFloat(String(row.CONSEGNATO).replace(",", ".")) / 1000;
+    // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
+    const prezzo_serv = parseFloat(String(row.PREZZO_SERV).replace(",", "."));
+    const sconto_serv = parseFloat(String(row.SCONTO_SERV).replace(",", "."));
+    const prezzo_self = parseFloat(String(row.PREZZO_SELF).replace(",", "."));
+    const sconto_self = parseFloat(String(row.SCONTO_SELF).replace(",", "."));
+    const prezzo_opt = parseFloat(String(row.PREZZO_OPT).replace(",", "."));
+    const sconto_opt = parseFloat(String(row.SCONTO_OPT).replace(",", "."));
+    const stacco = parseFloat(String(row.STACCO).replace(",", "."));
+    const ordinato = parseFloat(String(row.ORDINATO).replace(",", "."));
+
+    const note = String(row.NOTE);
+
+    // Ottengo il valore "scontoFissoSiNo"
+    const scontoFissoImpianto = scontoFissoMap[impiantoCodice];
+
+    let scontoFisso;
+
+    if (scontoFissoImpianto) {
+      scontoFisso = scontoFissoImpianto[articolo] || false;
+    } else {
+      scontoFisso = false;
+    }
 
     // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
 
-    // 1) Controllo se la quantità consegnata è minore di 0
-    if (consegnato < 0 || !consegnato) {
-      console.error(
-        "Il valore di consegnato contiene una quantità negativa o nulla: ",
+    // 1) Controllo sullo sconto fisso, solo per log
+    if (scontoFisso) {
+      logger.error("Impianto a sconto fisso: ", row);
+    }
+    // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
+    if (!articoliMap.includes(articolo)) {
+      logger.error(
+        "Il valore di articolo non è presente nel database di Dicomi: ",
         row
       );
       continue;
     }
 
-    const art = sellinMap[prodotto];
+    //TODO: In questa parte, il codice fa DELETE e INSERT
+    //   // 1) Controllo se la quantità ordinata è minore di 0
+    //   if (ordinato < 0 || !ordinato) {
+    //     logger.error(
+    //       "Il valore di ordinato contiene una quantità negativa o nulla: ",
+    //       row
+    //     );
+    //     continue;
+    //   }
 
-    // 2) Controllo se il prodotto è valido, in base all'anagrafica nel DB
-    if (!art) {
-      console.error(
-        "Il valore di prodotto non è presente nel database di Dicomi: ",
-        row
-      );
-      continue;
-    }
+    //   // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    //   if (!impiantiMap.includes(impiantoCodice)) {
+    //     logger.error(
+    //       "Il valore di impianto non è presente nel database di Dicomi: ",
+    //       row
+    //     );
+    //     continue;
+    //   }
 
-    // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
-    if (!impiantiMap.includes(impiantoCodice)) {
-      console.error(
-        "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
-      );
-      continue;
-    }
-
-    // Faccio l'upsert sul DB
-    await upsertConsegnato(
+    logger.info(
       impiantoCodice,
-      prodotto,
-      dataConsegna,
-      art,
-      consegnato
+      articolo,
+      prezzo_serv,
+      sconto_serv,
+      prezzo_self,
+      sconto_self,
+      prezzo_opt,
+      sconto_opt,
+      stacco,
+      ordinato,
+      note,
+      scontoFisso
     );
+    //   // Faccio l'upsert sul DB
+    //   await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato);
   }
 
   return true;
 }
-async function upsertConsegnato(
+async function upsertListDistr(
   impiantoCodice: string,
-  ArticoloSellin: string,
-  dataConsegna: Date,
   articolo: string,
-  consegnato: number
+  dataOrdinato: Date,
+  ordinato: number
 ) {
   //.toISOString().split("T")[0];
   try {
     const pool = await getDatabasePool();
-    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataConsegna):
+    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
     // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
     const query = `
-        MERGE INTO ${consegnatoTable} AS target
-        USING (VALUES (@ImpiantoCodice, @ArticoloSellin, @DataConsegna))
-          AS source (ImpiantoCodice, ArticoloSellin, DataConsegna)
+        MERGE INTO ${ordinatoTable} AS target
+        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
+          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
         ON (
           target.ImpiantoCodice = source.ImpiantoCodice
-          AND target.ArticoloSellin = source.ArticoloSellin
-          AND target.DataConsegna = source.DataConsegna
+          AND target.Articolo = source.Articolo
+          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
         )
         WHEN MATCHED THEN
           UPDATE SET
-          Articolo = @Articolo,
-          QtaConsegnata = @QtaConsegnata,
+          QtaOrdinata = @QtaOrdinata,
           DataModifica = GETDATE()
         WHEN NOT MATCHED THEN
-            INSERT (DataConsegna, ImpiantoCodice, Articolo, ArticoloSellin, QtaConsegnata)
-            VALUES (@DataConsegna, @ImpiantoCodice, @Articolo, @ArticoloSellin, @QtaConsegnata);
+            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
+            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
       `;
 
     const result = await pool
       .request()
       .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-      .input("ArticoloSellin", sql.NVarChar, ArticoloSellin)
-      .input("DataConsegna", sql.Date, dataConsegna)
       .input("Articolo", sql.NVarChar, articolo)
-      .input("QtaConsegnata", sql.Float, consegnato)
+      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
+      .input("QtaOrdinata", sql.Float, ordinato)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert eseguito con successo: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+        `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
       );
       return true;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${consegnatoTable}: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`
+        `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
       );
       return false;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Consegnato: ${impiantoCodice}, ${ArticoloSellin}, ${articolo}, ${dataConsegna}, ${consegnato}`,
+      `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
       err
     );
     return false;
@@ -1302,7 +1441,7 @@ async function equalList(list1: String[], list2: String[]): Promise<boolean> {
   );
 }
 
-async function moveFile(status: boolean, filePath: string, fileName?: string) {
+async function moveFile(status: boolean, filePath: string) {
   // Se status è vero, usa la cartella OK, altrimenti quella ERR
 
   const targetDirectory = status
@@ -1314,26 +1453,15 @@ async function moveFile(status: boolean, filePath: string, fileName?: string) {
   const ext = path.extname(originalFileName);
   const baseName = path.basename(originalFileName, ext);
 
-  // Crea un timestamp formattato come YYYYMMDD_HHMMSS
-  const timestamp = new Date()
-    .toISOString() // "2025-04-07T13:14:15.678Z"
-    .replace(/[-:]/g, "") // "20250407T131415.678Z"
-    .slice(0, 15) // "20250407T131415"
-    .replace("T", "_"); // "20250407_131415"
-
-  if (!fileName) {
-    fileName = baseName;
-  }
-
   // Costruisci il nuovo nome del file
-  const newFileName = `${timestamp}_${fileName}${ext}`;
+  const newFileName = `${baseName}${ext}`;
   const targetPath = path.join(targetDirectory, newFileName);
 
   try {
     await fs.promises.rename(filePath, targetPath);
-    console.log(`File spostato in: ${targetPath}`);
+    logger.info(`File spostato in: ${targetPath}`);
   } catch (err) {
-    console.error("Errore nello spostamento del file:", err);
+    logger.error("Errore nello spostamento del file:", err);
   }
 }
 
@@ -1347,11 +1475,11 @@ async function controlloFiles() {
 
     // Se è presente almeno un file
     if (files.length > 0) {
-      console.log("File rilevati:", files);
+      logger.info("File rilevati:", files);
 
       for (const file of files) {
         const filePath = path.join(inputDirectory, file);
-        console.log("File in elaborazione:", file);
+        logger.info("File in elaborazione:", file);
 
         // Il file è del formato corretto CSV
         if (path.extname(file).toLowerCase() === ".csv") {
@@ -1375,18 +1503,18 @@ async function controlloFiles() {
                 results.push(row);
               })
               .on("end", () => {
-                console.log("Il file CSV è stato letto correttamente");
+                logger.info("Il file CSV è stato letto correttamente");
                 resolve(results);
               })
               .on("error", (err) => {
-                console.error("Errore nella lettura del file CSV:", err);
+                logger.error("Errore nella lettura del file CSV:", err);
                 reject(err);
               });
           });
 
           // CONTROLLO SE IL FILE NON SIA VUOTO
           if (results.length === 0) {
-            console.error("Errore: il file non contiene righe di dati.");
+            logger.error("Errore: il file non contiene righe di dati.");
             await moveFile(false, filePath);
             continue;
           }
@@ -1395,85 +1523,79 @@ async function controlloFiles() {
           switch (true) {
             // Il file è "CONSEGNATO"
             case /consegnato/i.test(file):
-              console.log("File riconosciuto come CONSEGNATO: ", file);
+              logger.info("File riconosciuto come CONSEGNATO: ", file);
 
               await moveFile(
                 await elaboraConsegnato(results, fileHeaders),
-                filePath,
-                "consegnato"
+                filePath
               );
 
               break;
 
             // Il file è "ORDINATO"
             case /ordinato/i.test(file):
-              console.log("File riconosciuto come ORDINATO: ", file);
+              logger.info("File riconosciuto come ORDINATO: ", file);
 
               await moveFile(
                 await elaboraOrdinato(file, results, fileHeaders),
-                filePath,
-                "ordinato"
+                filePath
               );
 
               break;
 
             // Il file è "CARTE CREDITO"
             case /utx_dicomi/i.test(file):
-              console.log("File riconosciuto come CARTE CREDITO: ", file);
+              logger.info("File riconosciuto come CARTE CREDITO: ", file);
 
               await moveFile(
                 await elaboraCarteCredito(results, fileHeaders),
-                filePath,
-                "utx_dicomi"
+                filePath
               );
 
               break;
 
             // Il file è "CARTE PROMO"
             case /cartepromo/i.test(file):
-              console.log("File riconosciuto come CARTE PROMO: ", file);
+              logger.info("File riconosciuto come CARTE PROMO: ", file);
 
               await moveFile(
                 await elaboraCartePromo(results, fileHeaders),
-                filePath,
-                "cartepromo"
+                filePath
               );
 
               break;
 
             // Il file è "TRADING AREA"
             case /trading_area/i.test(file):
-              console.log("File riconosciuto come TRADING AREA: ", file);
+              logger.info("File riconosciuto come TRADING AREA: ", file);
 
               await moveFile(
                 await elaboraTradingArea(file, results, fileHeaders),
-                filePath,
-                "trading_area"
+                filePath
               );
 
               break;
 
             // Il file è "TRADING AREA"
             case /listino/i.test(file):
-              console.log("File riconosciuto come LISTINO: ", file);
+              logger.info("File riconosciuto come LISTINO: ", file);
 
               await moveFile(
                 await elaboraListDistr(file, results, fileHeaders),
-                filePath,
-                "listino"
+                filePath
               );
 
               break;
 
             // Il file non è stato riconosciuto
             default:
-              console.log("File non riconosciuto: ", file);
+              logger.info("File non riconosciuto: ", file);
           }
         }
         // Il file non è in formato CSV
         else {
           await moveFile(false, filePath);
-          console.log("Il file contiene un'estensione errata: ", file);
+          logger.info("Il file contiene un'estensione errata: ", file);
         }
       }
 
@@ -1482,13 +1604,13 @@ async function controlloFiles() {
     }
     // Se non è presente neanche un file
     else {
-      console.log("Nessun file .csv trovato nella cartella", inputDirectory);
+      logger.info("Nessun file .csv trovato nella cartella", inputDirectory);
 
       // Sleep di 1 minuto
       await new Promise((resolve) => setTimeout(resolve, 60000));
     }
   } catch (error) {
-    console.error(
+    logger.error(
       "Errore durante la lettura della cartella",
       csvMainDirectory,
       error
@@ -1564,7 +1686,7 @@ app.get(
       }
 
       // Devo verificare se la richiesta è valida.
-      // Se secreKey+dataDiOggi corrisponde all'hash che ricevo, la richiesta è autentica
+      // Se secretKey+dataDiOggi corrisponde all'hash che ricevo, la richiesta è autentica
       const today = new Date().toLocaleDateString("it-IT");
       const authHash = hashString(`${today}__${secretGen}`);
 
