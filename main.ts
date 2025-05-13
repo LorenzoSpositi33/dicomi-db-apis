@@ -850,8 +850,16 @@ async function elaboraTradingArea(
   results: any[],
   fileHeaders: String[]
 ) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+
   const impiantiMap = await impiantiMapping();
   const articoliMap = await articoliMapping();
+
+  // Articoli che scelgo volontariamente di ignorare tra i dati che arrivano dalla Trading Area
+  const ignoreArticles = ["GAS_PREST"];
 
   const expectedHeaders = [
     "PV",
@@ -902,6 +910,8 @@ async function elaboraTradingArea(
 
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
+    righeElaborate += 1;
+
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
 
@@ -917,50 +927,77 @@ async function elaboraTradingArea(
       parseFloat(String(row["PREZZO CHIUSURA"]).replace(",", ".")) || 0;
 
     // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
-    // 1) Controllo se l'articolo è valido, in base all'anagrafica nel DB
-    if (!articoliMap.includes(articolo)) {
+    // 1) Controllo se l'articolo è valido, in base all'anagrafica nel DB e non ricade nell'elenco degli articoli da ignorare
+    if (!articoliMap.includes(articolo) && !ignoreArticles.includes(articolo)) {
       logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
         row
       );
+      righeErrore += 1;
       continue;
     }
+
     // 2) Controllo se l'impianto è valido, in base all'anagrafica nel DB
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
         row
       );
+      righeErrore += 1;
       continue;
     }
 
-    //TODO: La logica del codice è delete e poi insert, bisogna capire se è necessario o è meglio fare altro
-
-    // logger.info(
-    //   dataTradingArea,
-    //   impiantoCodice,
-    //   bandiera,
-    //   indirizzo,
-    //   articolo,
-    //   main,
-    //   self,
-    //   serv,
-    //   chiusura
-    // );
+    // 3) Controllo se l'articolo è da ignorare, in caso salto la riga
+    if (ignoreArticles.includes(articolo)) {
+      logger.warn(
+        "Il valore di articolo è presente nella lista di articoli da ignorare: ",
+        row
+      );
+      righeSaltate += 1;
+      // Non devo comunque scrivere la riga
+      continue;
+    }
+    // Faccio l'upsert sul DB
+    /*
+    Codice 0: Ho inserito / modificato la riga
+    Codice 1: La riga è andata in errore
+    Codice 2: Non ho apportato modifiche
+    */
+    switch (
+      await upsertTradingArea(
+        dataTradingArea,
+        impiantoCodice,
+        bandiera,
+        indirizzo,
+        articolo,
+        main,
+        self,
+        serv,
+        chiusura
+      )
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
 
     // Faccio l'upsert sul DB
-    await upsertTradingArea(
-      dataTradingArea,
-      impiantoCodice,
-      bandiera,
-      indirizzo,
-      articolo,
-      main,
-      self,
-      serv,
-      chiusura
-    );
+
+    //TODO: Dopo aver inserito la trading area, lo script vecchio lanciava la SP Calcolo_GL (ora su qlik) e inseriva le bandiere nuove non presenti in DICOMI_ConBandiere in DICOMI_NewBandiere.
   }
+
+  //Finito il file, stampo il log
+  logger.info(`Il file Trading Area è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
 
   return true;
 }
@@ -1017,21 +1054,21 @@ async function upsertTradingArea(
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert eseguito con successo: ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`
+        `Upsert effettuato per ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`
       );
-      return true;
+      return 0;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`
+        `Nessun upsert effettuato per ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`
       );
-      return false;
+      return 2;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Trading Area: ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`,
+      `Errore durante l'upsert per ${tradingAreaTable}: ${dataTradingArea}, ${impiantoCodice}, ${articolo}, ${bandiera}, ${indirizzo}, ${main}, ${serv}, ${self}, ${chiusura}`,
       err
     );
-    return false;
+    return 1;
   }
 }
 
