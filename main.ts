@@ -21,10 +21,11 @@ const carteCreditoTable = process.env.TABLE_CARTE_CREDITO;
 const cartePromoTable = process.env.TABLE_CARTE_PROMO;
 const tradingAreaTable = process.env.TABLE_TRADING_AREA;
 const listDistTable = process.env.TABLE_LIST_DISTRIBUTORI;
-const listDistFissoTable = process.env.TABLE_LIST_DISTRIBUTORI_FISSO;
 const impScontiFissiTable = process.env.TABLE_IMP_SCONTI_FISSI;
 const artSellInTable = process.env.TABLE_ARTICOLI_SELLIN;
 const artTable = process.env.TABLE_ARTICOLI;
+const tipiCarteTable = process.env.TABLE_TIPI_CARTE;
+
 const secretGen = process.env.SECRET_AUTH_KEY;
 const csvMainDirectory = String(process.env.FILE_MAIN_FOLDER);
 const csvInputDirectory = String(process.env.FILE_FOLDER_INPUT);
@@ -98,7 +99,30 @@ async function impiantiMapping(): Promise<String[]> {
     );
   } catch (err) {
     logger.error(
-      `Errore nell'ottenere l'elenco degli impianti dicomi, query`,
+      `Errore nell'ottenere l'elenco degli impianti dicomi, query: `,
+      err
+    );
+  }
+
+  return result;
+}
+
+async function tipiCarteMapping(): Promise<String[]> {
+  let result: String[] = [];
+
+  try {
+    const pool = await getDatabasePool();
+
+    const query = `SELECT car.TipoCarta AS tipo
+    
+    FROM ${tipiCarteTable} AS car`;
+
+    result = (await pool.request().query(query)).recordset.map(
+      (item) => item.tipo
+    );
+  } catch (err) {
+    logger.error(
+      `Errore nell'ottenere l'elenco dei tipi carta dicomi, query: `,
       err
     );
   }
@@ -123,7 +147,7 @@ async function impiantiCartePromoMapping(): Promise<String[]> {
     );
   } catch (err) {
     logger.error(
-      `Errore nell'ottenere l'elenco degli impianti dicomi abilitati alle carte promo, query`,
+      `Errore nell'ottenere l'elenco degli impianti dicomi abilitati alle carte promo, query: `,
       err
     );
   }
@@ -154,7 +178,7 @@ async function sellInMapping(): Promise<Record<string, string>> {
     result = mapping;
   } catch (err) {
     logger.error(
-      `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
+      `Errore nell'ottenere l'elenco degli articoli sell-in, query: `,
       err
     );
   }
@@ -177,7 +201,7 @@ async function articoliMapping(): Promise<String[]> {
     );
   } catch (err) {
     logger.error(
-      `Errore nell'ottenere l'elenco degli articoli sell-in, query`,
+      `Errore nell'ottenere l'elenco degli articoli sell-in, query: `,
       err
     );
   }
@@ -239,6 +263,40 @@ async function scontoFissoMapping(
   }
 
   return result;
+}
+
+//Funzione che crea un tipo carta provvisorio "TBN" se esiste una carta nuova
+async function createTipoCarta(tipo: string) {
+  const defaultDescription = "TBN";
+  const defaultAziendaleSiNo = 1;
+
+  try {
+    const pool = await getDatabasePool();
+    const query = `
+        INSERT INTO ${tipiCarteTable} (TipoCarta, Descrizione, CartaAziendaleSiNo)
+        VALUES (@TipoCarta, @Descrizione, @CartaAziendaleSiNo);   
+      `;
+
+    const result = await pool
+      .request()
+      .input("TipoCarta", sql.NVarChar, tipo)
+      .input("Descrizione", sql.NVarChar, defaultDescription)
+      .input("CartaAziendaleSiNo", sql.Int, defaultAziendaleSiNo)
+      .query(query);
+
+    if (result.rowsAffected[0] > 0) {
+      logger.info(
+        `Insert effettuato per ${tipiCarteTable}: ${tipo}, ${defaultDescription}, ${defaultAziendaleSiNo}`
+      );
+      return true;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante l'insert per ${tipiCarteTable}: ${tipo},  ${defaultDescription}, ${defaultAziendaleSiNo}`,
+      err
+    );
+    return false;
+  }
 }
 
 // GESTIONE FILE: CONSEGNATO
@@ -1074,8 +1132,15 @@ async function upsertTradingArea(
 
 // GESTIONE FILE: CARTE CREDITO
 async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+  let righeNuoveCarte = 0;
+
   const sellinMap = await sellInMapping();
   const impiantiMap = await impiantiMapping();
+  const tipiCarteMap = await tipiCarteMapping();
 
   const expectedHeaders = [
     "TIPO TRS",
@@ -1100,10 +1165,11 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
+    righeElaborate += 1;
     const trs = String(row["TIPO TRS"]);
 
-    //TODO: Da capire meglio che tipo di conversione viene fatta su questa colonna, inoltre se non è una data valida, do errore
-    //TODO: Devo fare anche dei controlli sui valori aspettati per ogni campo
+    //TODO: Verifico la correttezza della data
+
     const datetime = String(row.DATATIME);
     // Separa la data e il tempo (usando lo slash come delimitatore)
     const [datePart, timePart] = datetime.split("/");
@@ -1131,7 +1197,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     // L'impianto è in questo formato: 00PV000705
     const impiantoCodice = String(
-      Number(String(row.PV).substring(4, 10))
+      Number(String(row.PV).substring(String(row.PV).length - 4))
     ).padStart(4, "0");
 
     const indirizzo = String(row["INDIRIZZO PV"]);
@@ -1155,6 +1221,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
         "Il valore di prodotto non è presente nel database di Dicomi: ",
         row
       );
+      righeErrore += 1;
       continue;
     }
 
@@ -1164,24 +1231,56 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
         "Il valore di impianto non è presente nel database di Dicomi: ",
         row
       );
+      righeErrore += 1;
       continue;
     }
 
+    // 4 WARNING) Se non esiste il tipo carta nel DB, creo un tipo carta provvisorio e lo segnalo
+    if (!tipiCarteMap.includes(tipo)) {
+      logger.warn(
+        "Il valore di tipo carta non è presente nel DB, lo creo provvisoriamente",
+        row
+      );
+
+      // Inserisco nel DB la nuova carta
+      (await createTipoCarta(tipo)) ? (righeNuoveCarte += 1) : undefined;
+    }
+
     // Faccio l'upsert sul DB
-    await upsertCarteCredito(
-      trs,
-      dataTimestamp,
-      impiantoCodice,
-      indirizzo,
-      art,
-      cod_prodotto,
-      desc_prodotto,
-      tipo,
-      volume,
-      importo_accr,
-      prz_accr
-    );
+    switch (
+      await upsertCarteCredito(
+        trs,
+        dataTimestamp,
+        impiantoCodice,
+        indirizzo,
+        art,
+        cod_prodotto,
+        desc_prodotto,
+        tipo,
+        volume,
+        importo_accr,
+        prz_accr
+      )
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
   }
+
+  //Finito il file, stampo il log
+  logger.info(`Il file Trading Area è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Nuove carte inserite: ${righeNuoveCarte}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
 
   return true;
 }
@@ -1246,22 +1345,22 @@ async function upsertCarteCredito(
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
-      // logger.info(
-      //   `Upsert eseguito con successo: ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
-      // );
-      return true;
+      logger.info(
+        `Upsert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+      );
+      return 0;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+        `Nessun upsert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
       );
-      return false;
+      return 2;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Carte Credito: ${carteCreditoTable}: `,
+      `Errore durante l'upsert per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`,
       err
     );
-    return false;
+    return 1;
   }
 }
 
@@ -1271,6 +1370,12 @@ async function elaboraListDistr(
   results: any[],
   fileHeaders: String[]
 ) {
+  let righeModificate = 0;
+  let righeSaltate = 0;
+  let righeErrore = 0;
+  let righeElaborate = 0;
+
+  const impiantiMap = await impiantiMapping();
   const articoliMap = await articoliMapping();
 
   const expectedHeaders = [
@@ -1325,14 +1430,14 @@ async function elaboraListDistr(
 
   const scontoFissoMap = await scontoFissoMapping(dataListDistr);
 
-  logger.info(scontoFissoMap);
-
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
+    righeElaborate += 1;
+
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
     // Ottengo l'articolo
-    const articolo = String(row.PRODOTTO);
+    const articolo = String(row.PRODOTTO).replace("HVO+", "HVO");
 
     // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
     const prezzo_serv = parseFloat(String(row.PREZZO_SERV).replace(",", "."));
@@ -1342,7 +1447,7 @@ async function elaboraListDistr(
     const prezzo_opt = parseFloat(String(row.PREZZO_OPT).replace(",", "."));
     const sconto_opt = parseFloat(String(row.SCONTO_OPT).replace(",", "."));
     const stacco = parseFloat(String(row.STACCO).replace(",", "."));
-    const ordinato = parseFloat(String(row.ORDINATO).replace(",", "."));
+    const ordinato = parseFloat(String(row.ORDINATO).replace(",", ".")) || 0;
 
     const note = String(row.NOTE);
 
@@ -1358,113 +1463,146 @@ async function elaboraListDistr(
     }
 
     // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
-
-    // 1) Controllo sullo sconto fisso, solo per log
-    if (scontoFisso) {
-      logger.error("Impianto a sconto fisso: ", row);
+    //1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
+    if (!impiantiMap.includes(impiantoCodice)) {
+      logger.error(
+        "Il valore di impianto non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
     }
+
     // 2) Controllo se l'articolo è valido, in base all'anagrafica nel DB
     if (!articoliMap.includes(articolo)) {
       logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
         row
       );
+      righeErrore += 1;
       continue;
     }
 
-    //TODO: In questa parte, il codice fa DELETE e INSERT
-    //   // 1) Controllo se la quantità ordinata è minore di 0
-    //   if (ordinato < 0 || !ordinato) {
-    //     logger.error(
-    //       "Il valore di ordinato contiene una quantità negativa o nulla: ",
-    //       row
-    //     );
-    //     continue;
-    //   }
+    //WARNING 3) Controllo sullo sconto fisso, solo per log
+    if (scontoFisso) {
+      logger.warn("Impianto a sconto fisso: ", row);
+    }
 
-    //   // 3) Controllo se l'impianto è valido, in base all'anagrafica nel DB
-    //   if (!impiantiMap.includes(impiantoCodice)) {
-    //     logger.error(
-    //       "Il valore di impianto non è presente nel database di Dicomi: ",
-    //       row
-    //     );
-    //     continue;
-    //   }
-
-    logger.info(
-      impiantoCodice,
-      articolo,
-      prezzo_serv,
-      sconto_serv,
-      prezzo_self,
-      sconto_self,
-      prezzo_opt,
-      sconto_opt,
-      stacco,
-      ordinato,
-      note,
-      scontoFisso
-    );
-    //   // Faccio l'upsert sul DB
-    //   await upsertOrdinato(impiantoCodice, articolo, dataOrdinato, ordinato);
+    // Faccio l'upsert sul DB
+    switch (
+      await upsertListDistr(
+        dataListDistr,
+        impiantoCodice,
+        articolo,
+        prezzo_serv,
+        sconto_serv,
+        prezzo_self,
+        sconto_self,
+        prezzo_opt,
+        sconto_opt,
+        stacco,
+        ordinato,
+        note
+      )
+    ) {
+      case 0:
+        righeModificate += 1;
+        break;
+      case 1:
+        righeErrore += 1;
+        break;
+      case 2:
+        righeSaltate += 1;
+        break;
+    }
   }
+
+  //Finito il file, stampo il log
+  logger.info(`Il file Trading Area è stato elaborato`);
+  logger.info(`Righe elaborate: ${righeElaborate}`);
+  logger.info(`Righe inserite / modificate: ${righeModificate}`);
+  logger.info(`Righe ignorate: ${righeSaltate}`);
+  logger.info(`Righe andate in errore: ${righeErrore}`);
 
   return true;
 }
 async function upsertListDistr(
-  impiantoCodice: string,
-  articolo: string,
-  dataOrdinato: Date,
-  ordinato: number
+  DataListino: Date,
+  ImpiantoCodice: string,
+  Articolo: string,
+  PrezzoServito: number,
+  ScontoServito: number,
+  PrezzoSelf: number,
+  ScontoSelf: number,
+  PrezzoOpt: number,
+  ScontoOpt: number,
+  Stacco: number,
+  Ordinato: number,
+  Note: string
 ) {
-  //.toISOString().split("T")[0];
   try {
     const pool = await getDatabasePool();
     // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
     // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
     const query = `
-        MERGE INTO ${ordinatoTable} AS target
-        USING (VALUES (@ImpiantoCodice, @Articolo, @DataConsegnaOrdine))
-          AS source (ImpiantoCodice, Articolo, DataConsegnaOrdine)
+        MERGE INTO ${listDistTable} AS target
+        USING (VALUES (@DataListino, @ImpiantoCodice, @Articolo))
+          AS source (DataListino, ImpiantoCodice, Articolo)
         ON (
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.Articolo = source.Articolo
-          AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
+          AND target.DataListino = source.DataListino
         )
         WHEN MATCHED THEN
           UPDATE SET
-          QtaOrdinata = @QtaOrdinata,
+          PrezzoServito = @PrezzoServito,
+          ScontoServito = @ScontoServito,
+          PrezzoSelf = @PrezzoSelf,
+          ScontoSelf = @ScontoSelf,
+          PrezzoOpt = @PrezzoOpt,
+          ScontoOpt = @ScontoOpt,
+          Stacco = @Stacco,
+          Ordinato = @Ordinato,
+          Note = @Note,
           DataModifica = GETDATE()
         WHEN NOT MATCHED THEN
-            INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
-            VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
+            INSERT (DataListino, ImpiantoCodice, Articolo, PrezzoServito, ScontoServito, PrezzoSelf, ScontoSelf, PrezzoOpt, ScontoOpt, Stacco, Ordinato, Note)
+            VALUES (@DataListino, @ImpiantoCodice, @Articolo, @PrezzoServito, @ScontoServito, @PrezzoSelf, @ScontoSelf, @PrezzoOpt, @ScontoOpt, @Stacco, @Ordinato, @Note);
       `;
 
     const result = await pool
       .request()
-      .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
-      .input("Articolo", sql.NVarChar, articolo)
-      .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
-      .input("QtaOrdinata", sql.Float, ordinato)
+      .input("DataListino", sql.Date, DataListino)
+      .input("ImpiantoCodice", sql.NVarChar, ImpiantoCodice)
+      .input("Articolo", sql.NVarChar, Articolo)
+      .input("PrezzoServito", sql.Float, PrezzoServito)
+      .input("ScontoServito", sql.Float, ScontoServito)
+      .input("PrezzoSelf", sql.Float, PrezzoSelf)
+      .input("ScontoSelf", sql.Float, ScontoSelf)
+      .input("PrezzoOpt", sql.Float, PrezzoOpt)
+      .input("ScontoOpt", sql.Float, ScontoOpt)
+      .input("Stacco", sql.Float, Stacco)
+      .input("Ordinato", sql.Float, Ordinato)
+      .input("Note", sql.NVarChar, Note)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert eseguito con successo: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+        `Upsert effettuato per: ${listDistTable}: ${DataListino}, ${ImpiantoCodice}, ${Articolo}, ${PrezzoServito}, ${ScontoServito}, ${PrezzoSelf}, ${ScontoSelf}, ${PrezzoOpt}, ${ScontoOpt}, ${Stacco}, ${Ordinato}, ${Note}`
       );
-      return true;
+      return 0;
     } else {
       logger.warn(
-        `Nessuna riga è stata aggiornata/inserita: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`
+        `Nessun upsert effettuato per: ${listDistTable}: ${DataListino}, ${ImpiantoCodice}, ${Articolo}, ${PrezzoServito}, ${ScontoServito}, ${PrezzoSelf}, ${ScontoSelf}, ${PrezzoOpt}, ${ScontoOpt}, ${Stacco}, ${Ordinato}, ${Note}`
       );
-      return false;
+      return 2;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert della riga di Ordinato: ${ordinatoTable}: ${impiantoCodice}, ${articolo}, ${dataOrdinato}, ${ordinato}`,
+      `Errore durante l'upsert per: ${listDistTable}: ${DataListino}, ${ImpiantoCodice}, ${Articolo}, ${PrezzoServito}, ${ScontoServito}, ${PrezzoSelf}, ${ScontoSelf}, ${PrezzoOpt}, ${ScontoOpt}, ${Stacco}, ${Ordinato}, ${Note}`,
       err
     );
-    return false;
+    return 1;
   }
 }
 
