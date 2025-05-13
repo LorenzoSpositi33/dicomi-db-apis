@@ -1773,16 +1773,13 @@ async function controlloFiles() {
           logger.info("Il file contiene un'estensione errata: ", file);
         }
       }
-
-      //TODO: Da rimuovere:
-      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     // Se non è presente neanche un file
     else {
       logger.info("Nessun file .csv trovato nella cartella", inputDirectory);
 
       // Sleep di 1 minuto
-      await new Promise((resolve) => setTimeout(resolve, 60000));
+      await new Promise((resolve) => setTimeout(resolve, 60_000));
     }
   } catch (error) {
     logger.error(
