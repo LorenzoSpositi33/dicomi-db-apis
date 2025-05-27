@@ -1751,7 +1751,7 @@ async function controlloFiles() {
 
               break;
 
-            // Il file è "TRADING AREA"
+            // Il file è "LISTINO"
             case /listino/i.test(file):
               logger.info("File riconosciuto come LISTINO: ", file);
 
