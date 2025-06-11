@@ -51,6 +51,79 @@ function hashString(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
+// Controlla che il file non contenga duplicati in base agli header passati come chiave
+async function checkDuplicatedRows(
+  file: any[],
+  headers: string[]
+): Promise<boolean | any> {
+  const seen = new Map<string, boolean>();
+  const duplicates = new Set<string>();
+
+  for (const row of file) {
+    // Estrai i valori delle colonne da controllare
+    const keyValues = headers.map((h) => String(row[h] ?? ""));
+    // Serializza in JSON per sicurezza (eviti collisioni col separatore)
+    const key = JSON.stringify(keyValues);
+
+    if (seen.has(key)) {
+      duplicates.add(key);
+    } else {
+      seen.set(key, true);
+    }
+  }
+
+  // Non ci sono duplicati nel file
+  if (duplicates.size === 0) {
+    return true;
+  }
+
+  return Array.from(duplicates)
+    .map((k) => JSON.parse(k))
+    .map((tuple) =>
+      headers.reduce(
+        (obj, h, i) => ({ ...obj, [h]: tuple[i] }),
+        {} as Record<string, string>
+      )
+    );
+}
+
+// Ottengo la media di righe ricevute per i file 'Ordinato' nelle ultime settimane, a parità del giorno della settimana del file
+async function getMediaOrdinato(file_date: Date) {
+  try {
+    const pool = await getDatabasePool();
+    const query = `
+    SELECT
+    COALESCE(AVG(Conteggio), 0) AS Media
+    FROM
+    (
+      SELECT
+      DataConsegnaOrdine AS Giorno,
+      COUNT(*) AS Conteggio
+      FROM ${ordinatoTable}
+      
+      WHERE
+      -- Seleziona tutti i giorni che hanno lo stesso giorno della settimana dell'input
+      DATEPART(dw,CAST(DataConsegnaOrdine AS DATE)) = DATEPART(dw, CAST(@DataFile AS DATE)) AND
+      -- Seleziona i giorni di 3 settimane fa, escluso oggi
+      CAST(DataConsegnaOrdine AS DATE) >= DATEADD(DAY, -21, CAST(@DataFile AS DATE)) AND
+      CAST(DataConsegnaOrdine AS DATE) < CAST(@DataFile AS DATE)
+      
+      GROUP BY (DataConsegnaOrdine)
+    ) tab`;
+
+    const result = (
+      await pool.request().input("DataFile", sql.Date, file_date).query(query)
+    ).recordset;
+
+    return result[0].Media;
+  } catch (err) {
+    logger.error(
+      `Errore nell'ottenere la media del conteggio righe ordinato nelle settimane passate, query: `,
+      err
+    );
+  }
+}
+
 // Questa funzione sostituisce l'osservatorio ID nella tabella concorrenza con un nuovo ID
 async function replaceOss(oldId: string, newId: string): Promise<boolean> {
   try {
@@ -331,11 +404,9 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
       oldDataConsegna.split("/");
     const dataConsegna = new Date(
-      Date.UTC(
-        Number(yearDataConsegna),
-        Number(monthDataConsegna) - 1,
-        Number(dayDataConsegna)
-      )
+      Number(yearDataConsegna),
+      Number(monthDataConsegna) - 1,
+      Number(dayDataConsegna)
     );
 
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
@@ -518,25 +589,40 @@ async function elaboraOrdinato(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataOrdinato = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    ); // Nota: i mesi in JS sono zero-indexed
+    dataOrdinato = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataOrdinato); // "2025-04-10"
 
     // Verifica se è sabato (6) o domenica (0) e, in base al risultato, aggiungi i giorni necessari per passare a lunedì
-    const dayOfWeek = dataOrdinato.getUTCDay(); // getUTCDay() restituisce 0 per domenica, 6 per sabato
+    const dayOfWeek = dataOrdinato.getDay(); // getDay() restituisce 0 per domenica, 6 per sabato
     if (dayOfWeek === 6) {
       // Se è sabato, aggiungi 2 giorni
-      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 2);
+      dataOrdinato.setDate(dataOrdinato.getDate() + 2);
       logger.info("Rilevato SABATO, data convertita in: ", dataOrdinato);
     } else if (dayOfWeek === 0) {
       // Se è domenica, aggiungi 1 giorno
-      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 1);
+      dataOrdinato.setDate(dataOrdinato.getDate() + 1);
       logger.info("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
     }
   } else {
     logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
 
+    return false;
+  }
+
+  const checkDuplicates = await checkDuplicatedRows(results, [
+    "PV_NAME",
+    "PROD_NAME",
+  ]);
+
+  // 3) Controllo che le chiavi del file non siano duplicate
+  if (checkDuplicates != true) {
+    logger.error(
+      `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
+        checkDuplicates,
+        null,
+        2
+      )}`
+    );
     return false;
   }
 
@@ -549,7 +635,7 @@ async function elaboraOrdinato(
     // Ottengo l'articolo
     const articolo = String(row.PROD_NAME);
     // Ottengo la quantità di ordinato nel formato corretto, pronto per l'inserimento nel DB
-    const ordinato = parseFloat(String(row.VOL_ORDINATO).replace(",", "."));
+    const ordinato = Number(String(row.VOL_ORDINATO).replace(",", "."));
 
     // CONTROLLO RIGA PER RIGA SE E' VALIDA, ALTRIMENTI LA IGNORO
     // 1) Controllo se la quantità ordinata è minore di 0
@@ -603,6 +689,13 @@ async function elaboraOrdinato(
 
   //Finito il file, stampo il log
   logger.info(`Il file Ordinato è stato elaborato`);
+  logger.info(`Numero totale di righe: ${results.length}`);
+  logger.info(
+    `Media di righe nelle ultime 3 settimane: ${await getMediaOrdinato(
+      dataOrdinato
+    )}`
+  );
+  logger.info(`Data del file: ${dataOrdinato}`);
   logger.info(`Righe elaborate: ${righeElaborate}`);
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
@@ -616,7 +709,6 @@ async function upsertOrdinato(
   dataOrdinato: Date,
   ordinato: number
 ) {
-  //.toISOString().split("T")[0];
   try {
     const pool = await getDatabasePool();
     // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
@@ -630,10 +722,14 @@ async function upsertOrdinato(
           AND target.Articolo = source.Articolo
           AND target.DataConsegnaOrdine = source.DataConsegnaOrdine
         )
-        WHEN MATCHED THEN
+        -- Se esistono già le chiavi, controllo se cambia qualcosa
+        WHEN MATCHED
+        AND QtaOrdinata <> @QtaOrdinata
+        THEN
           UPDATE SET
           QtaOrdinata = @QtaOrdinata,
           DataModifica = GETDATE()
+        -- Le chiavi non esistono, vado in insert
         WHEN NOT MATCHED THEN
             INSERT (DataConsegnaOrdine, ImpiantoCodice, Articolo, QtaOrdinata)
             VALUES (@DataConsegnaOrdine, @ImpiantoCodice, @Articolo, @QtaOrdinata);
@@ -644,7 +740,7 @@ async function upsertOrdinato(
       .input("ImpiantoCodice", sql.NVarChar, impiantoCodice)
       .input("Articolo", sql.NVarChar, articolo)
       .input("DataConsegnaOrdine", sql.Date, dataOrdinato)
-      .input("QtaOrdinata", sql.Float, ordinato)
+      .input("QtaOrdinata", sql.Decimal(18, 4), ordinato)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
@@ -712,11 +808,9 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     const [dayDataCartePromo, monthDataCartePromo, yearDataCartePromo] =
       oldDataCartePromo.split("/");
     const dataCartePromo = new Date(
-      Date.UTC(
-        Number(yearDataCartePromo),
-        Number(monthDataCartePromo) - 1,
-        Number(dayDataCartePromo)
-      )
+      Number(yearDataCartePromo),
+      Number(monthDataCartePromo) - 1,
+      Number(dayDataCartePromo)
     );
 
     // 1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
@@ -956,9 +1050,7 @@ async function elaboraTradingArea(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataTradingArea = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    ); // Nota: i mesi in JS sono zero-indexed
+    dataTradingArea = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataTradingArea); // "2025-04-10"
   } else {
     logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
@@ -1182,16 +1274,14 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     // Estrai ore, minuti e secondi dalla parte dell'orario
     const [hours, minutes, seconds] = timePart.split(":").map(Number);
 
-    // Crea l'oggetto Date completo in UTC
+    // Crea l'oggetto Date completo
     const dataTimestamp = new Date(
-      Date.UTC(
-        Number(yearDataCompetenza),
-        Number(monthDataCompetenza) - 1,
-        Number(dayDataCompetenza),
-        hours,
-        minutes,
-        seconds
-      )
+      Number(yearDataCompetenza),
+      Number(monthDataCompetenza) - 1,
+      Number(dayDataCompetenza),
+      hours,
+      minutes,
+      seconds
     );
 
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
@@ -1418,9 +1508,7 @@ async function elaboraListDistr(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataListDistr = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    ); // Nota: i mesi in JS sono zero-indexed
+    dataListDistr = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataListDistr); // "2025-04-10"
   } else {
     logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
