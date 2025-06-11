@@ -8,6 +8,8 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
+import { parse } from "date-fns";
+import { it } from "date-fns/locale";
 
 dotenv.config();
 
@@ -49,6 +51,36 @@ const httpsServer = https.createServer(credentials, app);
 function hashString(input: string): string {
   logger.info("Secret in generazione");
   return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+// Funzione di parsing con formato “EEE, dd MMM”
+function parseKey(key: string): Date {
+  return parse(key, "EEE, dd MMM", new Date(), { locale: it });
+}
+
+async function convertItaDate(data: Date) {
+  const giorniShort = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+  const mesiShort = [
+    "Gen",
+    "Feb",
+    "Mar",
+    "Apr",
+    "Mag",
+    "Giu",
+    "Lug",
+    "Ago",
+    "Set",
+    "Ott",
+    "Nov",
+    "Dic",
+  ];
+
+  // Usa i metodi UTC se vuoi essere sicuro di restare in UTC
+  const weekday = giorniShort[data.getUTCDay()];
+  const day = String(data.getUTCDate()).padStart(2, "0");
+  const month = mesiShort[data.getUTCMonth()];
+
+  return `${weekday}, ${day} ${month}`;
 }
 
 // Controlla che il file non contenga duplicati in base agli header passati come chiave
@@ -392,7 +424,28 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     return false;
   }
 
+  // 2) Controllo che le chiavi del file non siano duplicate
+  const checkDuplicates = await checkDuplicatedRows(results, [
+    "PV",
+    "PRODOTTO",
+    "DATA_CONSEGNA",
+  ]);
+
+  if (checkDuplicates != true) {
+    logger.error(
+      `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
+        checkDuplicates,
+        null,
+        2
+      )}`
+    );
+    return false;
+  }
+
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
+
+  const elencoDate: any = [];
+
   for (const row of results) {
     righeElaborate += 1;
 
@@ -404,10 +457,29 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     const [dayDataConsegna, monthDataConsegna, yearDataConsegna] =
       oldDataConsegna.split("/");
     const dataConsegna = new Date(
-      Number(yearDataConsegna),
-      Number(monthDataConsegna) - 1,
-      Number(dayDataConsegna)
+      Date.UTC(
+        Number(yearDataConsegna),
+        Number(monthDataConsegna) - 1,
+        Number(dayDataConsegna)
+      )
     );
+
+    const dateKey = await convertItaDate(dataConsegna);
+    const prodKey = sellinMap[prodotto] || "N/A";
+
+    let logArrayData = elencoDate.find((item: any) => item.date === dateKey);
+    if (!logArrayData) {
+      logArrayData = { date: dateKey, prods: [] };
+      elencoDate.push(logArrayData);
+    }
+
+    let logArray = logArrayData.prods.find(
+      (item: any) => item.article === prodKey
+    );
+    if (!logArray) {
+      logArray = { article: prodKey, ok: 0, warn: 0, err: 0 };
+      logArrayData.prods.push(logArray);
+    }
 
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
@@ -425,6 +497,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
         row
       );
       righeErrore += 1;
+      logArray.err += 1;
       continue;
     }
 
@@ -437,6 +510,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
         row
       );
       righeErrore += 1;
+      logArray.err += 1;
       continue;
     }
 
@@ -447,6 +521,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
         row
       );
       righeErrore += 1;
+      logArray.err += 1;
       continue;
     }
 
@@ -467,19 +542,25 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     ) {
       case 0:
         righeModificate += 1;
+        logArray.ok += 1;
         break;
       case 1:
         righeErrore += 1;
+        logArray.err += 1;
         break;
       case 2:
         righeSaltate += 1;
+        logArray.warn += 1;
         break;
     }
   }
 
-  //Finito il file, stampo il log
+  elencoDate.sort(
+    (a: any, b: any) => parseKey(a.date).getTime() - parseKey(b.date).getTime()
+  );
 
   logger.info(`Il file Consegnato è stato elaborato`);
+  logger.info(`Log raggruppato: ${elencoDate}`);
   logger.info(`Righe elaborate: ${righeElaborate}`);
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
@@ -508,7 +589,7 @@ async function upsertConsegnato(
           AND target.ArticoloSellin = source.ArticoloSellin
           AND target.DataConsegna = source.DataConsegna
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND (Articolo <> @Articolo OR QtaConsegnata <> @QtaConsegnata) THEN
           UPDATE SET
           Articolo = @Articolo,
           QtaConsegnata = @QtaConsegnata,
@@ -524,7 +605,7 @@ async function upsertConsegnato(
       .input("ArticoloSellin", sql.NVarChar, ArticoloSellin)
       .input("DataConsegna", sql.Date, dataConsegna)
       .input("Articolo", sql.NVarChar, articolo)
-      .input("QtaConsegnata", sql.Float, consegnato)
+      .input("QtaConsegnata", sql.Decimal(18, 4), consegnato)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
@@ -589,18 +670,21 @@ async function elaboraOrdinato(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataOrdinato = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
+    dataOrdinato = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
+
     logger.info("Data trovata:", dataOrdinato); // "2025-04-10"
 
     // Verifica se è sabato (6) o domenica (0) e, in base al risultato, aggiungi i giorni necessari per passare a lunedì
-    const dayOfWeek = dataOrdinato.getDay(); // getDay() restituisce 0 per domenica, 6 per sabato
+    const dayOfWeek = dataOrdinato.getUTCDay(); // getDay() restituisce 0 per domenica, 6 per sabato
     if (dayOfWeek === 6) {
       // Se è sabato, aggiungi 2 giorni
-      dataOrdinato.setDate(dataOrdinato.getDate() + 2);
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 2);
       logger.info("Rilevato SABATO, data convertita in: ", dataOrdinato);
     } else if (dayOfWeek === 0) {
       // Se è domenica, aggiungi 1 giorno
-      dataOrdinato.setDate(dataOrdinato.getDate() + 1);
+      dataOrdinato.setUTCDate(dataOrdinato.getUTCDate() + 1);
       logger.info("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
     }
   } else {
@@ -609,12 +693,12 @@ async function elaboraOrdinato(
     return false;
   }
 
+  // 3) Controllo che le chiavi del file non siano duplicate
   const checkDuplicates = await checkDuplicatedRows(results, [
     "PV_NAME",
     "PROD_NAME",
   ]);
 
-  // 3) Controllo che le chiavi del file non siano duplicate
   if (checkDuplicates != true) {
     logger.error(
       `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
@@ -808,9 +892,11 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     const [dayDataCartePromo, monthDataCartePromo, yearDataCartePromo] =
       oldDataCartePromo.split("/");
     const dataCartePromo = new Date(
-      Number(yearDataCartePromo),
-      Number(monthDataCartePromo) - 1,
-      Number(dayDataCartePromo)
+      Date.UTC(
+        Number(yearDataCartePromo),
+        Number(monthDataCartePromo) - 1,
+        Number(dayDataCartePromo)
+      )
     );
 
     // 1) Controllo se l'impianto è valido, in base all'anagrafica nel DB
@@ -1050,7 +1136,9 @@ async function elaboraTradingArea(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataTradingArea = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
+    dataTradingArea = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataTradingArea); // "2025-04-10"
   } else {
     logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
@@ -1276,12 +1364,14 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
     // Crea l'oggetto Date completo
     const dataTimestamp = new Date(
-      Number(yearDataCompetenza),
-      Number(monthDataCompetenza) - 1,
-      Number(dayDataCompetenza),
-      hours,
-      minutes,
-      seconds
+      Date.UTC(
+        Number(yearDataCompetenza),
+        Number(monthDataCompetenza) - 1,
+        Number(dayDataCompetenza),
+        hours,
+        minutes,
+        seconds
+      )
     );
 
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
@@ -1508,7 +1598,9 @@ async function elaboraListDistr(
     const month = dateString.substring(4, 6);
     const day = dateString.substring(6, 8);
 
-    dataListDistr = new Date(Number(year), Number(month) - 1, Number(day)); // Nota: i mesi in JS sono zero-indexed
+    dataListDistr = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day))
+    ); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataListDistr); // "2025-04-10"
   } else {
     logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
