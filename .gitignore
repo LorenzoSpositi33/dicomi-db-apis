@@ -1,7 +1,7 @@
 # Typescript build
 .dist
 
-/test/*
+test/
 
 # Logs
 logs
