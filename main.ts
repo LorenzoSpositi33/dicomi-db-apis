@@ -16,6 +16,7 @@ dotenv.config();
 // Parametri del file .ENV
 const apiPort = process.env.DB_API_PORT;
 const concTable = process.env.TABLE_CONCORRENZA;
+const bandiereTable = process.env.TABLE_BANDIERE;
 const impiantiTable = process.env.TABLE_IMPIANTI;
 const consegnatoTable = process.env.TABLE_CONSEGNATO;
 const ordinatoTable = process.env.TABLE_ORDINATO;
@@ -363,6 +364,29 @@ async function scontoFissoMapping(
   } catch (err) {
     logger.error(
       `Errore nell'ottenere l'elenco degli impianti con sconto fisso`,
+      err
+    );
+  }
+
+  return result;
+}
+
+async function bandieraIndirizzoMapping(): Promise<String[]> {
+  let result: String[] = [];
+
+  try {
+    const pool = await getDatabasePool();
+
+    const query = `SELECT UPPER(band.Indirizzo) as ind, UPPER(band.Bandiera) as ban
+    
+    FROM ${bandiereTable} AS band`;
+
+    result = (await pool.request().query(query)).recordset.map(
+      (item) => `${item.ind}|${item.ban}`
+    );
+  } catch (err) {
+    logger.error(
+      `Errore nell'ottenere l'elenco delle bandiere e degli indirizzi nel DB, query: `,
       err
     );
   }
@@ -1095,6 +1119,7 @@ async function elaboraTradingArea(
 
   const impiantiMap = await impiantiMapping();
   const articoliMap = await articoliMapping();
+  const bandieraIndirizzoMap = await bandieraIndirizzoMapping();
 
   // Articoli che scelgo volontariamente di ignorare tra i dati che arrivano dalla Trading Area
   const ignoreArticles = ["GAS_PREST"];
@@ -1146,6 +1171,25 @@ async function elaboraTradingArea(
     return false;
   }
 
+  // 3) Controllo che le chiavi del file non siano duplicate
+  const checkDuplicates = await checkDuplicatedRows(results, [
+    "PV",
+    "PRODOTTO",
+    "BANDIERA",
+    "INDIRIZZO",
+  ]);
+
+  if (checkDuplicates != true) {
+    logger.error(
+      `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
+        checkDuplicates,
+        null,
+        2
+      )}`
+    );
+    return false;
+  }
+
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
     righeElaborate += 1;
@@ -1153,8 +1197,11 @@ async function elaboraTradingArea(
     // Ottengo l'impianto codice con 4 cifre forzate, e gli 0 davanti in caso servano per completare la stringa
     const impiantoCodice = String(row.PV).padStart(4, "0");
 
-    const bandiera = String(row.BANDIERA);
-    const indirizzo = String(row.INDIRIZZO);
+    const bandiera = String(row.BANDIERA).trim().toUpperCase();
+    const indirizzo = String(row.INDIRIZZO)
+      .replace("ß", "ÃŸ")
+      .trim()
+      .toUpperCase();
     const articolo = String(row.PRODOTTO);
     // Se la colonna ha del contenuto, torna 1, altrimenti 0
     const main = Boolean(row.MAIN);
@@ -1195,6 +1242,17 @@ async function elaboraTradingArea(
       // Non devo comunque scrivere la riga
       continue;
     }
+
+    // 4) Controllo se la coppia Indirizzo + bandiera, deve esistere nel DB
+    if (!bandieraIndirizzoMap.includes(`${indirizzo}|${bandiera}`)) {
+      logger.error(
+        "Il valore di Indirizzo + Bandiera non è presente nel database di Dicomi: ",
+        row
+      );
+      righeErrore += 1;
+      continue;
+    }
+
     // Faccio l'upsert sul DB
     /*
     Codice 0: Ho inserito / modificato la riga
@@ -1226,8 +1284,6 @@ async function elaboraTradingArea(
     }
 
     // Faccio l'upsert sul DB
-
-    //TODO: Dopo aver inserito la trading area, lo script vecchio lanciava la SP Calcolo_GL (ora su qlik) e inseriva le bandiere nuove non presenti in DICOMI_ConBandiere in DICOMI_NewBandiere.
   }
 
   //Finito il file, stampo il log
@@ -1236,6 +1292,8 @@ async function elaboraTradingArea(
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+
+  process.exit(0);
 
   return true;
 }
@@ -1256,18 +1314,25 @@ async function upsertTradingArea(
     // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
     const query = `
         MERGE INTO ${tradingAreaTable} AS target
-        USING (VALUES (@ImpiantoCodice, @Articolo, @DataTradingArea, @Bandiera, @Indirizzo, @MainSiNo))
-          AS source (ImpiantoCodice, Articolo, DataTradingArea, Bandiera, Indirizzo, MainSiNo)
+        USING (VALUES (@ImpiantoCodice, @Articolo, @DataTradingArea, @Bandiera, @Indirizzo))
+          AS source (ImpiantoCodice, Articolo, DataTradingArea, Bandiera, Indirizzo)
         ON (
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.Articolo = source.Articolo
           AND target.DataTradingArea = source.DataTradingArea
           AND target.Bandiera = source.Bandiera
           AND target.Indirizzo = source.Indirizzo
-          AND target.MainSiNo = source.MainSiNo
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED 
+        AND (
+          MainSiNo <> @MainSiNo OR
+          PrezzoServito <> @PrezzoServito OR
+          PrezzoSelf <> @PrezzoSelf OR
+          PrezzoOpt <> @PrezzoOpt
+        )
+        THEN
           UPDATE SET
+          MainSiNo = @MainSiNo,
           PrezzoServito = @PrezzoServito,
           PrezzoSelf = @PrezzoSelf,
           PrezzoOpt = @PrezzoOpt,
@@ -1285,9 +1350,9 @@ async function upsertTradingArea(
       .input("Bandiera", sql.NVarChar, bandiera)
       .input("Indirizzo", sql.NVarChar, indirizzo)
       .input("MainSiNo", sql.Bit, main)
-      .input("PrezzoServito", sql.Float, serv)
-      .input("PrezzoSelf", sql.Float, self)
-      .input("PrezzoOpt", sql.Float, chiusura)
+      .input("PrezzoServito", sql.Decimal(19, 4), serv)
+      .input("PrezzoSelf", sql.Decimal(19, 4), self)
+      .input("PrezzoOpt", sql.Decimal(19, 4), chiusura)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
