@@ -59,6 +59,31 @@ function parseKey(key: string): Date {
   return parse(key, "EEE, dd MMM", new Date(), { locale: it });
 }
 
+async function getListiniDelta() {
+  try {
+    const pool = await getDatabasePool();
+    const query = `
+    SELECT
+      (SELECT COUNT(*) 
+      FROM DICOMI_DB.dbo.DICOMI_ListDistributori 
+      WHERE DataListino = CAST(GETDATE() AS DATE)) 
+      -
+      (SELECT COUNT(*) 
+      FROM DICOMI_DB.dbo.DICOMI_ListDistributori 
+      WHERE DataListino = DATEADD(DAY, -1, CAST(GETDATE() AS DATE))) 
+    AS Delta`;
+
+    const result = (await pool.request().query(query)).recordset;
+
+    return result[0].Delta;
+  } catch (err) {
+    logger.error(
+      `Errore nell'ottenere la media del conteggio righe ordinato nelle settimane passate, query: `,
+      err
+    );
+  }
+}
+
 async function convertItaDate(data: Date) {
   const giorniShort = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
   const mesiShort = [
@@ -428,7 +453,7 @@ async function createTipoCarta(tipo: string) {
   }
 }
 
-// GESTIONE FILE: CONSEGNATO
+// GESTIONE FILE: CONSEGNATO - OK
 async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   let righeModificate = 0;
   let righeSaltate = 0;
@@ -652,7 +677,7 @@ async function upsertConsegnato(
   }
 }
 
-// GESTIONE FILE: ORDINATO
+// GESTIONE FILE: ORDINATO - OK
 async function elaboraOrdinato(
   fileName: string,
   results: any[],
@@ -871,7 +896,7 @@ async function upsertOrdinato(
   }
 }
 
-// GESTIONE FILE: CARTE PROMO
+// GESTIONE FILE: CARTE PROMO - OK
 async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   let righeModificate = 0;
   let righeSaltate = 0;
@@ -896,6 +921,24 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+    );
+    return false;
+  }
+
+  // 2) Controllo che le chiavi del file non siano duplicate
+  const checkDuplicates = await checkDuplicatedRows(results, [
+    "PV",
+    "TIPO",
+    "GIORNO",
+  ]);
+
+  if (checkDuplicates != true) {
+    logger.error(
+      `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
+        checkDuplicates,
+        null,
+        2
+      )}`
     );
     return false;
   }
@@ -991,7 +1034,6 @@ async function upsertCartePromo(
   dataCartePromo: Date,
   valore: number
 ) {
-  //.toISOString().split("T")[0];
   try {
     const pool = await getDatabasePool();
 
@@ -1011,7 +1053,7 @@ async function upsertCartePromo(
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.DataCartePromo = source.DataCartePromo
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND Battesimi <> @Valore THEN
           UPDATE SET
           Battesimi = @Valore,
           DataModifica = GETDATE()
@@ -1030,7 +1072,7 @@ async function upsertCartePromo(
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.DataCartePromo = source.DataCartePromo
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND TrxAttive <> @Valore THEN
           UPDATE SET
           TrxAttive = @Valore,
           DataModifica = GETDATE()
@@ -1049,7 +1091,7 @@ async function upsertCartePromo(
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.DataCartePromo = source.DataCartePromo
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND Promozionabile <> @Valore THEN
           UPDATE SET
           Promozionabile = @Valore,
           DataModifica = GETDATE()
@@ -1068,7 +1110,7 @@ async function upsertCartePromo(
           target.ImpiantoCodice = source.ImpiantoCodice
           AND target.DataCartePromo = source.DataCartePromo
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND Promozionato <> @Valore THEN
           UPDATE SET
           Promozionato = @Valore,
           DataModifica = GETDATE()
@@ -1106,7 +1148,7 @@ async function upsertCartePromo(
   }
 }
 
-// GESTIONE FILE: TRADING AREA
+// GESTIONE FILE: TRADING AREA - OK
 async function elaboraTradingArea(
   fileName: string,
   results: any[],
@@ -1293,8 +1335,6 @@ async function elaboraTradingArea(
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
 
-  process.exit(0);
-
   return true;
 }
 async function upsertTradingArea(
@@ -1375,7 +1415,7 @@ async function upsertTradingArea(
   }
 }
 
-// GESTIONE FILE: CARTE CREDITO
+// GESTIONE FILE: CARTE CREDITO - OK
 async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
   let righeModificate = 0;
   let righeSaltate = 0;
@@ -1405,6 +1445,11 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     logger.error(
       `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
     );
+    return false;
+  }
+
+  // Faccio il delete per oggi
+  if (!(await deleteCarteCredito())) {
     return false;
   }
 
@@ -1491,9 +1536,9 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
       (await createTipoCarta(tipo)) ? (righeNuoveCarte += 1) : undefined;
     }
 
-    // Faccio l'upsert sul DB
+    // Faccio l'insert sul DB
     switch (
-      await upsertCarteCredito(
+      await insertCarteCredito(
         trs,
         dataTimestamp,
         impiantoCodice,
@@ -1529,7 +1574,39 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
   return true;
 }
-async function upsertCarteCredito(
+// Questa operazione non deve essere di upsert, ma di DELETE - INSERT
+async function deleteCarteCredito() {
+  try {
+    const pool = await getDatabasePool();
+
+    // Svuoto tutte le righe del DB create oggi
+    const result = await pool
+      .request()
+      .query(
+        `DELETE FROM ${carteCreditoTable} WHERE CAST(DataCreazione AS DATE) = CAST(GETDATE() AS DATE)`
+      );
+
+    if (result.rowsAffected[0] > 0) {
+      logger.warn(
+        `Righe svuotate dalla tabella ${carteCreditoTable}: ${result.rowsAffected[0]}`
+      );
+      return true;
+    } else {
+      logger.warn(
+        `Nessuna riga svuotata dalla tabella ${carteCreditoTable}: ${result.rowsAffected[0]}`
+      );
+      return true;
+    }
+  } catch (err) {
+    logger.error(
+      `Errore durante il delete sulla tabella ${carteCreditoTable}, query:`,
+      err
+    );
+    return false;
+  }
+}
+// Questa operazione non deve essere di upsert, ma di DELETE - INSERT
+async function insertCarteCredito(
   trs: string,
   dataTimestamp: Date,
   impiantoCodice: string,
@@ -1545,33 +1622,12 @@ async function upsertCarteCredito(
   try {
     //TODO: Da capire se va bene l'upsert o è meglio fare una delete e importare tutto nuovamente.
     const pool = await getDatabasePool();
-    // La query MERGE controlla se esiste già una riga con le stesse chiavi (impiantoCodice, Articolo, DataOrdinato):
-    // se sì, esegue l'UPDATE, altrimenti esegue l'INSERT.
+
+    // Eseguo l'insert di tutte le righe presenti nel file
     const query = `
-          MERGE INTO ${carteCreditoTable} AS target
-          USING (VALUES (@TipoTrs, @DataOraTransazione, @DataCompetenza, @ImpiantoCodice, @ArticoloSellin, @TipoCarta))
-            AS source (TipoTrs, DataOraTransazione, DataCompetenza, ImpiantoCodice, ArticoloSellin, TipoCarta)
-          ON (
-            target.TipoTrs = source.TipoTrs
-            AND target.DataOraTransazione = source.DataOraTransazione
-            AND target.DataCompetenza = source.DataCompetenza
-            AND target.ImpiantoCodice = source.ImpiantoCodice
-            AND target.ArticoloSellin = source.ArticoloSellin
-            AND target.TipoCarta = source.TipoCarta
-          )
-          WHEN MATCHED THEN
-            UPDATE SET
-            ImpiantoDescrizione = @ImpiantoDescrizione,
-            Articolo = @Articolo,
-            ArticoloDescrizione = @ArticoloDescrizione,
-            Volume = @Volume,
-            ImportoAccr = @ImportoAccr,
-            PrezzoAccr = @PrezzoAccr,
-            DataModifica = GETDATE()
-          WHEN NOT MATCHED THEN
-              INSERT (TipoTrs, DataOraTransazione, DataCompetenza, ImpiantoCodice, ImpiantoDescrizione, Articolo, ArticoloSellin, ArticoloDescrizione, TipoCarta, Volume, ImportoAccr, PrezzoAccr)
-              VALUES (@TipoTrs, @DataOraTransazione, @DataCompetenza, @ImpiantoCodice, @ImpiantoDescrizione, @Articolo, @ArticoloSellin, @ArticoloDescrizione, @TipoCarta, @Volume, @ImportoAccr, @PrezzoAccr);
-        `;
+      INSERT INTO ${carteCreditoTable} (TipoTrs, DataOraTransazione, DataCompetenza, ImpiantoCodice, ImpiantoDescrizione, Articolo, ArticoloSellin, ArticoloDescrizione, TipoCarta, Volume, ImportoAccr, PrezzoAccr)
+      VALUES (@TipoTrs, @DataOraTransazione, @DataCompetenza, @ImpiantoCodice, @ImpiantoDescrizione, @Articolo, @ArticoloSellin, @ArticoloDescrizione, @TipoCarta, @Volume, @ImportoAccr, @PrezzoAccr);
+    `;
 
     const result = await pool
       .request()
@@ -1584,32 +1640,32 @@ async function upsertCarteCredito(
       .input("ArticoloSellin", sql.NVarChar, cod_prodotto)
       .input("ArticoloDescrizione", sql.NVarChar, desc_prodotto)
       .input("TipoCarta", sql.NVarChar, tipo)
-      .input("Volume", sql.Float, volume)
-      .input("ImportoAccr", sql.Float, importo_accr)
-      .input("PrezzoAccr", sql.Float, prz_accr)
+      .input("Volume", sql.Decimal(18, 2), volume)
+      .input("ImportoAccr", sql.Decimal(18, 6), importo_accr)
+      .input("PrezzoAccr", sql.Decimal(18, 6), prz_accr)
       .query(query);
 
     if (result.rowsAffected[0] > 0) {
       logger.info(
-        `Upsert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+        `Insert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
       );
       return 0;
     } else {
       logger.warn(
-        `Nessun upsert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
+        `Nessun insert effettuato per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`
       );
       return 2;
     }
   } catch (err) {
     logger.error(
-      `Errore durante l'upsert per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`,
+      `Errore durante l'insert per ${carteCreditoTable}: ${trs}, ${dataTimestamp}, ${impiantoCodice}, ${indirizzo}, ${art}, ${cod_prodotto}, ${desc_prodotto}, ${tipo}, ${volume}, ${importo_accr}, ${prz_accr}`,
       err
     );
     return 1;
   }
 }
 
-// GESTIONE FILE: LISTINO DISTRIBUTORI
+// GESTIONE FILE: LISTINO DISTRIBUTORI - OK
 async function elaboraListDistr(
   fileName: string,
   results: any[],
@@ -1674,6 +1730,23 @@ async function elaboraListDistr(
   }
 
   const scontoFissoMap = await scontoFissoMapping(dataListDistr);
+
+  // 3) Controllo che le chiavi del file non siano duplicate
+  const checkDuplicates = await checkDuplicatedRows(results, [
+    "PV",
+    "PRODOTTO",
+  ]);
+
+  if (checkDuplicates != true) {
+    logger.error(
+      `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
+        checkDuplicates,
+        null,
+        2
+      )}`
+    );
+    return false;
+  }
 
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
   for (const row of results) {
@@ -1762,12 +1835,24 @@ async function elaboraListDistr(
     }
   }
 
+  const delta = await getListiniDelta();
+  let formattedDelta = "";
+
+  if (delta > 0) {
+    formattedDelta = `+${delta}`;
+  } else if (delta < 0) {
+    formattedDelta = `${delta}`; // negativo già ha il segno
+  } else {
+    formattedDelta = "0";
+  }
+
   //Finito il file, stampo il log
   logger.info(`Il file Trading Area è stato elaborato`);
   logger.info(`Righe elaborate: ${righeElaborate}`);
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  logger.info(`Delta rispetto a ieri: ${formattedDelta}`);
 
   return true;
 }
@@ -1798,7 +1883,18 @@ async function upsertListDistr(
           AND target.Articolo = source.Articolo
           AND target.DataListino = source.DataListino
         )
-        WHEN MATCHED THEN
+        WHEN MATCHED AND (
+          PrezzoServito <> @PrezzoServito OR
+          ScontoServito <> @ScontoServito OR
+          PrezzoSelf <> @PrezzoSelf OR
+          ScontoSelf <> @ScontoSelf OR
+          PrezzoOpt <> @PrezzoOpt OR
+          ScontoOpt <> @ScontoOpt OR
+          Stacco <> @Stacco OR
+          Ordinato <> @Ordinato OR
+          Note <> @Note
+        )
+        THEN
           UPDATE SET
           PrezzoServito = @PrezzoServito,
           ScontoServito = @ScontoServito,
@@ -1820,14 +1916,14 @@ async function upsertListDistr(
       .input("DataListino", sql.Date, DataListino)
       .input("ImpiantoCodice", sql.NVarChar, ImpiantoCodice)
       .input("Articolo", sql.NVarChar, Articolo)
-      .input("PrezzoServito", sql.Float, PrezzoServito)
-      .input("ScontoServito", sql.Float, ScontoServito)
-      .input("PrezzoSelf", sql.Float, PrezzoSelf)
-      .input("ScontoSelf", sql.Float, ScontoSelf)
-      .input("PrezzoOpt", sql.Float, PrezzoOpt)
-      .input("ScontoOpt", sql.Float, ScontoOpt)
-      .input("Stacco", sql.Float, Stacco)
-      .input("Ordinato", sql.Float, Ordinato)
+      .input("PrezzoServito", sql.Decimal(18, 3), PrezzoServito)
+      .input("ScontoServito", sql.Decimal(18, 2), ScontoServito)
+      .input("PrezzoSelf", sql.Decimal(18, 3), PrezzoSelf)
+      .input("ScontoSelf", sql.Decimal(18, 2), ScontoSelf)
+      .input("PrezzoOpt", sql.Decimal(18, 3), PrezzoOpt)
+      .input("ScontoOpt", sql.Decimal(18, 2), ScontoOpt)
+      .input("Stacco", sql.Decimal(18, 3), Stacco)
+      .input("Ordinato", sql.Decimal(18, 2), Ordinato)
       .input("Note", sql.NVarChar, Note)
       .query(query);
 
