@@ -1,3 +1,5 @@
+export function buildFullHtmlCartePromo(reportDate: string, promoByType: { ok: number, err: number, html: string }, skippedCount: number) {
+  return `
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -13,13 +15,15 @@
 </head>
 <body>
   <div class="container">
-    <h1>Report CARTE PROMO del {{reportDate}}</h1>
+    <h1>Report CARTE PROMO del ${reportDate}</h1>
     <div class="stats">
-      <div class="ok">OK: {{promoByType.ok}}</div>
-      <div class="warn">Skipped: {{skippedCount}}</div>
-      <div class="err">ERR: {{promoByType.err}}</div>
+      <div class="ok">OK: ${promoByType.ok}</div>
+      <div class="warn">Skipped: ${skippedCount}</div>
+      <div class="err">ERR: ${promoByType.err}</div>
     </div>
-    {{promoByType.html}}
+    ${promoByType.html}
   </div>
 </body>
 </html>
+`;
+}

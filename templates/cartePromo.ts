@@ -1,28 +1,10 @@
-export interface CartePromoRow {
-  pv: string;
-  tipo: string;
-  conteggio: number;
-}
-
-export interface CartePromoStats {
-  reportDate: string;
-  totalRows: number;
-  modified: number;
-  skipped: number;
-  errored: number;
-  rows: CartePromoRow[];
-}
-
-
-export function buildCartePromoHtml(stats: {
+export function buildCartePromoHtmlSimple(stats: {
   reportDate: string;
   rows: {
-    timestamp: string;
-    pv: string;
-    article: string;
-    volume: number;
-    amount: number;
-    price: number;
+    GIORNO: string;
+    PV: string;
+    TIPO: string;
+    TOTALE: string;
   }[];
   skippedCount: number;
   ok: number;
@@ -30,12 +12,10 @@ export function buildCartePromoHtml(stats: {
 }) {
   const rowsHtml = stats.rows.map(row => `
     <tr>
-      <td>${row.timestamp}</td>
-      <td>${row.pv}</td>
-      <td>${row.article}</td>
-      <td>${row.volume}</td>
-      <td>${row.amount}</td>
-      <td>${row.price}</td>
+      <td>${row.GIORNO}</td>
+      <td>${row.PV}</td>
+      <td>${row.TIPO}</td>
+      <td>${row.TOTALE}</td>
     </tr>
   `).join('');
 
@@ -45,11 +25,18 @@ export function buildCartePromoHtml(stats: {
     html: `
       <h2>Report del ${stats.reportDate}</h2>
       <p>Righe Saltate: ${stats.skippedCount}</p>
-      <table border="1">
+      <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
         <thead>
-          <tr><th>Timestamp</th><th>PV</th><th>Articolo</th><th>Volume</th><th>Importo</th><th>Prezzo</th></tr>
+          <tr>
+            <th>Giorno</th>
+            <th>PV</th>
+            <th>Tipo</th>
+            <th>Totale</th>
+          </tr>
         </thead>
-        <tbody>${rowsHtml}</tbody>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
       </table>
     `
   };

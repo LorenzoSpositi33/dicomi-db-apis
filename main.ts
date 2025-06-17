@@ -21,7 +21,7 @@ import { buildOrdinatoHtml }     from "./templates/ordinato.js";
 import { sendOrdinatoReport }     from "./logger/emailSender.js";
 
 // --- CARTE PROMO ---
-import { buildCartePromoHtml }    from "./templates/cartePromo.js";
+import { buildCartePromoHtmlSimple }    from "./templates/cartePromo.js";
 import { sendCartePromoReport }   from "./logger/emailSender.js";
 
 // --- TRADING AREA ---
@@ -1113,15 +1113,28 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     ok ${righeModificate},
     skipped ${skipped},
     err ${righeErrore}`;
-
 const reportDate = new Date().toLocaleString("it-IT");
 
-const promoByTypeHtml = buildCartePromoHtml({
+const rowsFormatted = results.map(r => ({
+  GIORNO: r.GIORNO,
+  PV: r.PV,
+  TIPO: r.TIPO,
+  TOTALE: r.TOTALE,
+}));
+const promoByType = buildCartePromoHtmlSimple({
   reportDate,
-  rows: results,             // array dei dati grezzi
+  rows: rowsFormatted,
   skippedCount: righeSaltate,
-  ok: righeModificate,       // aggiungi ok ed err
+  ok: righeModificate,
   err: righeErrore,
+});
+console.log(results[0])
+const promoByTypeHtml = buildCartePromoHtmlSimple({
+  reportDate,
+  rows: rowsFormatted,
+  skippedCount: righeSaltate,
+  ok: righeElaborate,  // o numero righe processate correttamente
+  err: righeErrore,    // o numero righe con errori
 });
 
 await sendCartePromoReport(reportDate, promoByTypeHtml, righeSaltate);
