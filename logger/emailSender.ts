@@ -1,21 +1,28 @@
+// emailSender.ts
+import nodemailer, { Transporter, SendMailOptions } from "nodemailer";
 import fs from "fs";
 import path from "path";
-import Handlebars from "handlebars";
-import nodemailer, { Transporter, SendMailOptions } from "nodemailer";
+import { fileURLToPath } from "url";
 import { logger } from "./logger.js";
 
-export async function sendFromTemplate(
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+async function sendFromTemplate(
   templateName: string,
   subject: string,
   context: Record<string, any>
 ) {
-  // 1) Carica e compila con Handlebars
+  // 1) Carica template
   const templatePath = path.join(__dirname, templateName);
-  const tplSrc = fs.readFileSync(templatePath, "utf8");
-  const tpl = Handlebars.compile(tplSrc);
-  const html = tpl(context); // <-- Compilazione vera
+  let html = fs.readFileSync(templatePath, "utf8");
 
-  // 2) Configura e invia
+  // 2) Sostituisci placeholders {{key}} con context[key]
+  for (const [k, v] of Object.entries(context)) {
+    html = html.replace(new RegExp(`{{${k}}}`, "g"), String(v));
+  }
+
+  // 3) Configura e invia
   const transporter: Transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST!,
     port: Number(process.env.EMAIL_PORT!) || 587,
@@ -38,11 +45,11 @@ export async function sendFromTemplate(
   logger.info(`✅ Mail "${subject}" inviata, id=${info.messageId}`);
 }
 
-
-
 // --------------- funzioni dedicate ---------------
 
 export async function sendConsegnatoReport(
+  
+  
   reportDate: string,
   dayCardsHtml: string
 ) {
@@ -52,7 +59,7 @@ export async function sendConsegnatoReport(
     { reportDate, dayCards: dayCardsHtml }
   );
 }
-
+/*
 export async function sendOrdinatoReport(
   reportDate: string,
   summaryTableHtml: string,
@@ -112,3 +119,4 @@ export async function sendCarteCreditoReport(
     { reportDate, totalRows, newCards, errors }
   );
 }
+*/
