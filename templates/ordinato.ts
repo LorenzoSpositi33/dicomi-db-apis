@@ -1,27 +1,30 @@
-import fs from "fs";
-import path from "path";
-import Handlebars from "handlebars";
-
 export interface OrdinatoRow {
-    timestamp: string;
   date: string;
   total: number;
-  pv: string;
-  prodotto: string;
-  ordinato: number;
+  ok: number;
+  warn: number;
+  err: number;
 }
 
 export interface OrdinatoStats {
   reportDate: string;
+  dateFile: string;
   totalRows: number;
   avgPast: number;
-  dateFile: string;
   rows: OrdinatoRow[];
 }
 
-const tplSrc = fs.readFileSync(path.join(__dirname, "ordinato.html"), "utf8");
-const tpl = Handlebars.compile<OrdinatoStats>(tplSrc);
 
-export function buildOrdinatoHtml(stats: OrdinatoStats): string {
-  return tpl(stats);
+export function buildOrdinatoHtml(stats: {
+  reportDate: string;
+  summaryTable: string;
+  mediaGlobal: number;
+}) {
+  return `
+    <div>
+      <h2>Report del ${stats.reportDate}</h2>
+      <p>Media Storica: ${stats.mediaGlobal}</p>
+      ${stats.summaryTable}
+    </div>
+  `;
 }

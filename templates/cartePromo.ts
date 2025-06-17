@@ -1,29 +1,50 @@
-import fs from "fs";
-import path from "path";
-import Handlebars from "handlebars";
-
 export interface CartePromoRow {
   pv: string;
   tipo: string;
-  giorno: string;
-  totale: number;
-  nonAbilitata: boolean;
+  conteggio: number;
 }
 
 export interface CartePromoStats {
   reportDate: string;
-  rows: CartePromoRow[];
+  totalRows: number;
   modified: number;
   skipped: number;
   errored: number;
+  rows: CartePromoRow[];
 }
 
-const tplSrc = fs.readFileSync(path.join(__dirname, "cartePromo.html"), "utf8");
-const tpl = Handlebars.compile<CartePromoStats>(tplSrc);
 
-export function buildCartePromoHtml(stats: CartePromoStats): string {
-  return tpl({
-    reportDate: new Date().toLocaleString("it-IT"),
-    ...stats
-  });
+export function buildCartePromoHtml(stats: {
+  reportDate: string;
+  rows: {
+    timestamp: string;
+    pv: string;
+    article: string;
+    volume: number;
+    amount: number;
+    price: number;
+  }[];
+  skippedCount: number;
+}) {
+  const rowsHtml = stats.rows.map(row => `
+    <tr>
+      <td>${row.timestamp}</td>
+      <td>${row.pv}</td>
+      <td>${row.article}</td>
+      <td>${row.volume}</td>
+      <td>${row.amount}</td>
+      <td>${row.price}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <h2>Report del ${stats.reportDate}</h2>
+    <p>Righe Saltate: ${stats.skippedCount}</p>
+    <table border="1">
+      <thead>
+        <tr><th>Timestamp</th><th>PV</th><th>Articolo</th><th>Volume</th><th>Importo</th><th>Prezzo</th></tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
 }

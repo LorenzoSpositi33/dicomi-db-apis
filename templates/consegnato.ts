@@ -1,6 +1,17 @@
 import fs from "fs";
 import path from "path";
 import Handlebars from "handlebars";
+export interface ConsegnatoRow {
+  data: string;
+  articolo: string;
+  qta: number;
+}
+
+export interface ConsegnatoStats {
+  reportDate: string;
+  totalRows: number;
+  rows: ConsegnatoRow[];
+}
 
 export interface DayCard {
   date: string;

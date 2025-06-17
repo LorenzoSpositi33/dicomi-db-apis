@@ -10,8 +10,12 @@ import path from "path";
 import csv from "csv-parser";
 import { parse } from "date-fns";
 import { it } from "date-fns/locale";
-import type { OrdinatoStats } from "./templates/ordinato.js";
-import { CartePromoStats } from './templates/cartePromo.js'; 
+import { OrdinatoStats,OrdinatoRow } from './templates/ordinato.js';
+import { CartePromoStats, CartePromoRow } from './templates/cartePromo.js';
+import { TradingAreaStats,TradingAreaRow } from './templates/tradingarea.js';
+import { ListinoStats,ListinoRow } from './templates/listino.js';
+import { ConsegnatoStats,ConsegnatoRow } from './templates/consegnato.js';
+import { CarteCreditoStats } from './templates/carteCredito.js';
 
 // --- CONSEGNATO ---
 import { buildConsegnatoHtml } from "./templates/consegnato.js";
@@ -654,8 +658,15 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   
 
 const reportDate = new Date().toLocaleString("it-IT");
-const dayCardsHtml = buildConsegnatoHtml(elencoDate);
+const stats: ConsegnatoStats = {
+  reportDate,
+  rows: consegnatoRows, // Assicurati che sia un array valido
+};
+
+const dayCardsHtml = buildConsegnatoHtml(stats);
 await sendConsegnatoReport(reportDate, dayCardsHtml);
+
+
 
   return true;
 }
@@ -877,8 +888,6 @@ async function elaboraOrdinato(
   logger.info(`Righe andate in errore: ${righeErrore}`);
 
 
-  // … dopo aver calcolato righeElaborate, righeModificate, righeSaltate, righeErrore e mediaGlobal …
-
 const reportDate = new Date().toLocaleString("it-IT");
 const avgPast = await getMediaOrdinato(dataOrdinato);
 
@@ -888,7 +897,7 @@ const stats: OrdinatoStats = {
   totalRows: righeElaborate,
   avgPast,
   rows: [{
-    timestamp: new Date().toISOString(),
+    date: dataOrdinato.toISOString().slice(0, 10),
     total: righeElaborate,
     ok: righeModificate,
     warn: righeSaltate,
@@ -898,6 +907,11 @@ const stats: OrdinatoStats = {
 
 const summaryTableHtml = buildOrdinatoHtml(stats);
 await sendOrdinatoReport(reportDate, summaryTableHtml, avgPast);
+
+
+
+
+
 return true;
 }
 async function upsertOrdinato(
@@ -1095,20 +1109,15 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     ok ${righeModificate},
     skipped ${skipped},
     err ${righeErrore}`;
-
- const reportDate = new Date().toLocaleString("it-IT");
-const cartePromoRows = righeModificate; // oppure usa il nome reale del tuo array di righe
-
-const stats: CartePromoStats = {
+    const reportDate = new Date().toLocaleString("it-IT");
+  const stats: CartePromoStats = {
   reportDate,
-  modified: righeModificate,
   skipped: righeSaltate,
-  errored: righeErrore,
-  rows: cartePromoRows, // array di righe [{ pv, type, ... }]
+  rows: cartePromoRows, // Assicurati che sia un array, non undefined o string
 };
 
-const summaryTableHtml = buildCartePromoHtml(stats);
-await sendCartePromoReport(reportDate, summaryTableHtml, righeSaltate);
+const promoByTypeHtml = buildCartePromoHtml(stats);
+await sendCartePromoReport(reportDate, promoByTypeHtml, righeSaltate);
 
 
 
@@ -1426,20 +1435,18 @@ async function elaboraTradingArea(
     ok ${righeModificate},
     warn ${righeSaltate},
     err ${righeErrore}`;
+    const reportDate = new Date().toLocaleString("it-IT");
+ const stats: TradingAreaStats = {
+  reportDate,
+  rows: tradingAreaRows, // Assicurati che sia un array corretto
+};
 
-  const reportDate     = new Date().toLocaleString("it-IT");
-const tradingAreaRows = results.map(r=>({
-  pv:      String(r.PV).padStart(4,"0"),
-  brand:   String(r.BANDIERA),
-  addr:    String(r.INDIRIZZO),
-  prod:    String(r.PRODOTTO),
-  main:    Boolean(r.MAIN),
-  self:    parseFloat(String(r["PREZZO SELF"]).replace(",", ".")),
-  serv:    parseFloat(String(r["PREZZO SERV"]).replace(",", ".")),
-  close:   parseFloat(String(r["PREZZO CHIUSURA"]).replace(",", "."))
-}));
-const areaHtml = buildTradingAreaHtml(tradingAreaRows);
-await sendTradingAreaReport(reportDate, areaHtml);
+const priceCardsHtml = buildTradingAreaHtml(stats);
+await sendTradingAreaReport(reportDate, priceCardsHtml);
+
+
+
+
 return true;
 
 
@@ -1687,15 +1694,23 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     err ${righeErrore},
     new ${righeNuoveCarte}`;
 
- const reportDate = new Date().toLocaleString("it-IT");
-const credHtml   = buildCarteCreditoHtml({
-  total: righeElaborate,
-  ok:    righeModificate,
-  warn:  righeSaltate,
-  err:   righeErrore,
-  newCards: righeNuoveCarte
-});
-await sendCarteCreditoReport(reportDate, credHtml);
+const reportDate = new Date().toLocaleString("it-IT");
+const stats: CarteCreditoStats = {
+  reportDate,
+  totalRows: righeElaborate,
+  newCards: carteNuove, // Definisci questa variabile
+  errors: righeErrore,
+};
+
+await sendCarteCreditoReport(
+  reportDate,
+  stats.totalRows,
+  stats.newCards,
+  stats.errors
+);
+
+
+
 return true;
 
 
@@ -1987,24 +2002,19 @@ async function elaboraListDistr(
     ok ${righeModificate},
     warn ${righeSaltate},
     err ${righeErrore}`;
+    const reportDate = new Date().toLocaleString("it-IT");
+  const stats: ListinoStats = {
+  reportDate,
+  delta,
+  rows: listinoRows, // Array con struttura corretta
+};
 
-  const reportDate    = new Date().toLocaleString("it-IT");
-const deltaYesterday= formattedDelta;
-const listinoRows   = results.map(r=>({
-  pv:        String(r.PV).padStart(4,"0"),
-  product:   String(r.PRODOTTO).replace("HVO+","HVO"),
-  prezzoServ: parseFloat(String(r.PREZZO_SERV).replace(",", ".")),
-  scontoServ: parseFloat(String(r.SCONTO_SERV).replace(",", ".")),
-  prezzoSelf: parseFloat(String(r.PREZZO_SELF).replace(",", ".")),
-  scontoSelf: parseFloat(String(r.SCONTO_SELF).replace(",", ".")),
-  prezzoOpt:  parseFloat(String(r.PREZZO_OPT).replace(",", ".")),
-  scontoOpt:  parseFloat(String(r.SCONTO_OPT).replace(",", ".")),
-  stacco:     parseFloat(String(r.STACCO).replace(",", ".")),
-  ordinato:   parseFloat(String(r.ORDINATO).replace(",", "."))||0,
-  note:       String(r.NOTE)
-}));
-const listinoHtml = buildListinoHtml(listinoRows);
-await sendListinoReport(reportDate, listinoHtml, deltaYesterday);
+const listinoCardsHtml = buildListinoHtml(stats);
+await sendListinoReport(reportDate, listinoCardsHtml, delta);
+
+
+
+
 return true;
 
 return true;
