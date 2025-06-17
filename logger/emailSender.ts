@@ -4,25 +4,28 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "./logger.js";
+import handlebars from "handlebars";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Funzione generica per invio con compilazione template handlebars
 async function sendFromTemplate(
   templateName: string,
   subject: string,
   context: Record<string, any>
 ) {
-  // 1) Carica template
   const templatePath = path.join(__dirname, templateName);
-  let html = fs.readFileSync(templatePath, "utf8");
+  const rawHtml = fs.readFileSync(templatePath, "utf8");
 
-  // 2) Sostituisci placeholders {{key}} con context[key]
-  for (const [k, v] of Object.entries(context)) {
-    html = html.replace(new RegExp(`{{${k}}}`, "g"), String(v));
-  }
+  const compiled = handlebars.compile(rawHtml);
+  const html = compiled(context);
 
-  // 3) Configura e invia
+  await sendHtmlDirectly(subject, html);
+}
+
+// Funzione che invia direttamente HTML già pronto
+async function sendHtmlDirectly(subject: string, html: string) {
   const transporter: Transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST!,
     port: Number(process.env.EMAIL_PORT!) || 587,
@@ -45,54 +48,45 @@ async function sendFromTemplate(
   logger.info(`✅ Mail "${subject}" inviata, id=${info.messageId}`);
 }
 
-// --------------- funzioni dedicate ---------------
+// --------------- Funzioni dedicate ---------------
 
-export async function sendConsegnatoReport(
-  
-  
-  reportDate: string,
-  dayCardsHtml: string
-) {
-  await sendFromTemplate(
-    "summary-consegnato.html",
-    "Report ETL Consegnato",
-    { reportDate, dayCards: dayCardsHtml }
-  );
+export async function sendConsegnatoReport(html: string) {
+  await sendHtmlDirectly("Report ETL Consegnato", html);
 }
-/*
+
 export async function sendOrdinatoReport(
   reportDate: string,
   summaryTableHtml: string,
   mediaGlobal: number
 ) {
-  await sendFromTemplate(
-    "summary-ordinato.html",
-    "Report ETL Ordinato",
-    { reportDate, summaryTable: summaryTableHtml, mediaGlobal }
-  );
+  await sendFromTemplate("summary-ordinato.html", "Report ETL Ordinato", {
+    reportDate,
+    summaryTable: summaryTableHtml,
+    mediaGlobal,
+  });
 }
 
 export async function sendCartePromoReport(
   reportDate: string,
-  promoByTypeHtml: string,
+  promoByType: { ok: number; err: number; html: string },
   skippedCount: number
 ) {
   await sendFromTemplate(
     "summary-cartepromo.html",
     "Report ETL Carte Promo",
-    { reportDate, promoByType: promoByTypeHtml, skippedCount }
+    { reportDate, promoByType, skippedCount }
   );
 }
+
 
 export async function sendTradingAreaReport(
   reportDate: string,
   priceCardsHtml: string
 ) {
-  await sendFromTemplate(
-    "summary-tradingarea.html",
-    "Report ETL Trading Area",
-    { reportDate, areaCards: priceCardsHtml }
-  );
+  await sendFromTemplate("summary-tradingarea.html", "Report ETL Trading Area", {
+    reportDate,
+    areaCards: priceCardsHtml,
+  });
 }
 
 export async function sendListinoReport(
@@ -100,11 +94,11 @@ export async function sendListinoReport(
   listinoCardsHtml: string,
   deltaYesterday: string
 ) {
-  await sendFromTemplate(
-    "summary-listino.html",
-    "Report ETL Listino Distributori",
-    { reportDate, listinoCards: listinoCardsHtml, deltaYesterday }
-  );
+  await sendFromTemplate("summary-listino.html", "Report ETL Listino Distributori", {
+    reportDate,
+    listinoCards: listinoCardsHtml,
+    deltaYesterday,
+  });
 }
 
 export async function sendCarteCreditoReport(
@@ -113,10 +107,13 @@ export async function sendCarteCreditoReport(
   newCards: number,
   errors: number
 ) {
-  await sendFromTemplate(
-    "summary-cartecredito.html",
-    "Report ETL Carte Credito",
-    { reportDate, totalRows, newCards, errors }
-  );
+  await sendFromTemplate("summary-cartecredito.html", "Report ETL Carte Credito", {
+    reportDate,
+    totalRows,
+    newCards,
+    errors,
+  });
 }
-*/
+
+// Export utile se vuoi usare invio html diretto altrove
+export { sendHtmlDirectly };

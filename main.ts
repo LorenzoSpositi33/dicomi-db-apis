@@ -90,11 +90,11 @@ async function getListiniDelta() {
     const query = `
     SELECT
       (SELECT COUNT(*) 
-      FROM DICOMI_DB.dbo.DICOMI_ListDistributori 
+      FROM DICOMI_DB.dbo.ADEV_DICOMI_ListDistributori 
       WHERE DataListino = CAST(GETDATE() AS DATE)) 
       -
       (SELECT COUNT(*) 
-      FROM DICOMI_DB.dbo.DICOMI_ListDistributori 
+      FROM DICOMI_DB.dbo.ADEV_DICOMI_ListDistributori 
       WHERE DataListino = DATEADD(DAY, -1, CAST(GETDATE() AS DATE))) 
     AS Delta`;
 
@@ -664,7 +664,8 @@ const stats: DayCard[] = [
 ];
 
 const dayCardsHtml = buildConsegnatoHtml(stats);
-await sendConsegnatoReport(reportDate, dayCardsHtml);
+await sendConsegnatoReport(dayCardsHtml); 
+
 
 
 
@@ -1115,24 +1116,18 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
 
 const reportDate = new Date().toLocaleString("it-IT");
 
-const fakeRows = [
-  {
-    timestamp: reportDate,
-    pv: "N/A",
-    article: "N/A",
-    volume: righeModificate,
-    amount: righeModificate * 10,
-    price: righeModificate * 5,
-  },
-];
-
-const cartePromoHtml = buildCartePromoHtml({
+const promoByTypeHtml = buildCartePromoHtml({
   reportDate,
-  rows: fakeRows,
+  rows: results,             // array dei dati grezzi
   skippedCount: righeSaltate,
+  ok: righeModificate,       // aggiungi ok ed err
+  err: righeErrore,
 });
 
-await sendCartePromoReport(reportDate, cartePromoHtml, righeSaltate);
+await sendCartePromoReport(reportDate, promoByTypeHtml, righeSaltate);
+
+
+
 
 
 

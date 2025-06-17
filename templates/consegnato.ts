@@ -2,6 +2,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import fs from "fs";
 import Handlebars from "handlebars";
+import { readFileSync } from "fs";
 
 export interface ConsegnatoRow {
   data: string;
@@ -20,10 +21,16 @@ const __dirname = dirname(__filename);
 const tplSrc = fs.readFileSync(join(__dirname, "../logger/summary-consegnato.html"), "utf8");
 const tpl = Handlebars.compile<{ reportDate: string; dayCards: DayCard[] }>(tplSrc);
 
-export function buildConsegnatoHtml(dayCards: DayCard[]): string {
-  const reportDate = new Date().toLocaleString("it-IT", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit"
+export function buildConsegnatoHtml(stats: DayCard[]): string {
+  const templatePath = join(__dirname, "../logger/summary-consegnato.html");
+  const tplSrc = readFileSync(templatePath, "utf8");
+
+  const template = Handlebars.compile(tplSrc);
+  const html = template({
+    reportDate: new Date().toLocaleString("it-IT"),
+    dayCards: stats, // usa esattamente questa chiave: `dayCards`
   });
-  return tpl({ reportDate, dayCards });
+
+  return html;
 }
+

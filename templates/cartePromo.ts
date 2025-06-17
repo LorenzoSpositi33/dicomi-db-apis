@@ -25,6 +25,8 @@ export function buildCartePromoHtml(stats: {
     price: number;
   }[];
   skippedCount: number;
+  ok: number;
+  err: number;
 }) {
   const rowsHtml = stats.rows.map(row => `
     <tr>
@@ -37,14 +39,18 @@ export function buildCartePromoHtml(stats: {
     </tr>
   `).join('');
 
-  return `
-    <h2>Report del ${stats.reportDate}</h2>
-    <p>Righe Saltate: ${stats.skippedCount}</p>
-    <table border="1">
-      <thead>
-        <tr><th>Timestamp</th><th>PV</th><th>Articolo</th><th>Volume</th><th>Importo</th><th>Prezzo</th></tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-  `;
+  return {
+    ok: stats.ok,
+    err: stats.err,
+    html: `
+      <h2>Report del ${stats.reportDate}</h2>
+      <p>Righe Saltate: ${stats.skippedCount}</p>
+      <table border="1">
+        <thead>
+          <tr><th>Timestamp</th><th>PV</th><th>Articolo</th><th>Volume</th><th>Importo</th><th>Prezzo</th></tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    `
+  };
 }
