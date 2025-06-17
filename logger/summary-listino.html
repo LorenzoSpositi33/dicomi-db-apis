@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Report Listino Distributori</title>
+  <style>
+    .card { border:1px solid #ddd; padding:12px; margin-bottom:12px; border-radius:6px; }
+    .card .header { font-weight:bold; margin-bottom:6px; }
+    .delta { float:right; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Report LISTINO del {{reportDate}}</h1>
+    <p>Delta vs ieri: {{deltaYesterday}}</p>
+    {{listinoCards}}
+  </div>
+</body>
+</html>

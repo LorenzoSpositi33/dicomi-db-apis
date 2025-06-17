@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Report Carte Credito</title>
+  <style>
+    .summary { margin-bottom:20px; }
+    .summary div { margin:4px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Report CARTE CREDITO del {{reportDate}}</h1>
+    <div class="summary">
+      <div>Totale righe: {{totalRows}}</div>
+      <div>Nuove carte create: {{newCards}}</div>
+      <div>Errori: {{errors}}</div>
+    </div>
+    <!-- qui eventualmente puoi inserire anche una tabella dettagliata -->
+  </div>
+</body>
+</html>

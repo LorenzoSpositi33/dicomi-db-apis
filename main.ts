@@ -10,6 +10,32 @@ import path from "path";
 import csv from "csv-parser";
 import { parse } from "date-fns";
 import { it } from "date-fns/locale";
+import type { OrdinatoStats } from "./templates/ordinato.js";
+import { CartePromoStats } from './templates/cartePromo.js'; 
+
+// --- CONSEGNATO ---
+import { buildConsegnatoHtml } from "./templates/consegnato.js";
+import { sendConsegnatoReport }  from "./logger/emailSender.js";
+
+// --- ORDINATO ---
+import { buildOrdinatoHtml }     from "./templates/ordinato.js";
+import { sendOrdinatoReport }     from "./logger/emailSender.js";
+
+// --- CARTE PROMO ---
+import { buildCartePromoHtml }    from "./templates/cartePromo.js";
+import { sendCartePromoReport }   from "./logger/emailSender.js";
+
+// --- TRADING AREA ---
+import { buildTradingAreaHtml }   from "./templates/tradingarea.js";
+import { sendTradingAreaReport }  from "./logger/emailSender.js";
+
+// --- LISTINO DISTRIBUTORI ---
+import { buildListinoHtml }       from "./templates/listino.js";
+import { sendListinoReport }      from "./logger/emailSender.js";
+
+import { buildCarteCreditoHtml }       from "./templates/carteCredito.js";
+import { sendCarteCreditoReport }      from "./logger/emailSender.js";
+
 
 dotenv.config();
 
@@ -463,6 +489,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   const sellinMap = await sellInMapping();
   const impiantiMap = await impiantiMapping();
 
+
   const expectedHeaders = ["PV", "PRODOTTO", "DATA_CONSEGNA", "CONSEGNATO"];
 
   // 1) Controllo che gli header del file siano corretti
@@ -494,6 +521,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   // Elaboro il contenuto, riga per riga, del file e interagisco con il DB
 
   const elencoDate: any = [];
+
 
   for (const row of results) {
     righeElaborate += 1;
@@ -614,6 +642,20 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+
+    const logText = `File CONSEGNATO:
+    tot ${righeElaborate},
+    ok ${righeModificate},
+    warn ${righeSaltate},
+    err ${righeErrore}`;
+
+
+  
+  
+
+const reportDate = new Date().toLocaleString("it-IT");
+const dayCardsHtml = buildConsegnatoHtml(elencoDate);
+await sendConsegnatoReport(reportDate, dayCardsHtml);
 
   return true;
 }
@@ -834,7 +876,29 @@ async function elaboraOrdinato(
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
 
-  return true;
+
+  // … dopo aver calcolato righeElaborate, righeModificate, righeSaltate, righeErrore e mediaGlobal …
+
+const reportDate = new Date().toLocaleString("it-IT");
+const avgPast = await getMediaOrdinato(dataOrdinato);
+
+const stats: OrdinatoStats = {
+  reportDate,
+  dateFile: dataOrdinato.toISOString().slice(0, 10),
+  totalRows: righeElaborate,
+  avgPast,
+  rows: [{
+    timestamp: new Date().toISOString(),
+    total: righeElaborate,
+    ok: righeModificate,
+    warn: righeSaltate,
+    err: righeErrore,
+  }],
+};
+
+const summaryTableHtml = buildOrdinatoHtml(stats);
+await sendOrdinatoReport(reportDate, summaryTableHtml, avgPast);
+return true;
 }
 async function upsertOrdinato(
   impiantoCodice: string,
@@ -1025,6 +1089,29 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  const skipped = righeSaltate + righeNonAbilitate;
+  const logText = `File CARTE PROMO:
+    tot ${righeElaborate},
+    ok ${righeModificate},
+    skipped ${skipped},
+    err ${righeErrore}`;
+
+ const reportDate = new Date().toLocaleString("it-IT");
+const cartePromoRows = righeModificate; // oppure usa il nome reale del tuo array di righe
+
+const stats: CartePromoStats = {
+  reportDate,
+  modified: righeModificate,
+  skipped: righeSaltate,
+  errored: righeErrore,
+  rows: cartePromoRows, // array di righe [{ pv, type, ... }]
+};
+
+const summaryTableHtml = buildCartePromoHtml(stats);
+await sendCartePromoReport(reportDate, summaryTableHtml, righeSaltate);
+
+
+
 
   return true;
 }
@@ -1334,8 +1421,30 @@ async function elaboraTradingArea(
   logger.info(`Righe inserite / modificate: ${righeModificate}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  const logText = `File TRADING AREA:
+    tot ${righeElaborate},
+    ok ${righeModificate},
+    warn ${righeSaltate},
+    err ${righeErrore}`;
 
-  return true;
+  const reportDate     = new Date().toLocaleString("it-IT");
+const tradingAreaRows = results.map(r=>({
+  pv:      String(r.PV).padStart(4,"0"),
+  brand:   String(r.BANDIERA),
+  addr:    String(r.INDIRIZZO),
+  prod:    String(r.PRODOTTO),
+  main:    Boolean(r.MAIN),
+  self:    parseFloat(String(r["PREZZO SELF"]).replace(",", ".")),
+  serv:    parseFloat(String(r["PREZZO SERV"]).replace(",", ".")),
+  close:   parseFloat(String(r["PREZZO CHIUSURA"]).replace(",", "."))
+}));
+const areaHtml = buildTradingAreaHtml(tradingAreaRows);
+await sendTradingAreaReport(reportDate, areaHtml);
+return true;
+
+
+
+
 }
 async function upsertTradingArea(
   dataTradingArea: Date,
@@ -1571,8 +1680,28 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
   logger.info(`Nuove carte inserite: ${righeNuoveCarte}`);
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
+  const logText = `File CARTE CREDITO:
+    tot ${righeElaborate},
+    ok ${righeModificate},
+    warn ${righeSaltate},
+    err ${righeErrore},
+    new ${righeNuoveCarte}`;
 
-  return true;
+ const reportDate = new Date().toLocaleString("it-IT");
+const credHtml   = buildCarteCreditoHtml({
+  total: righeElaborate,
+  ok:    righeModificate,
+  warn:  righeSaltate,
+  err:   righeErrore,
+  newCards: righeNuoveCarte
+});
+await sendCarteCreditoReport(reportDate, credHtml);
+return true;
+
+
+
+
+  
 }
 // Questa operazione non deve essere di upsert, ma di DELETE - INSERT
 async function deleteCarteCredito() {
@@ -1853,8 +1982,34 @@ async function elaboraListDistr(
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
   logger.info(`Delta rispetto a ieri: ${formattedDelta}`);
+   const logText = `File LISTINO DISTRIBUTORI:
+    tot ${righeElaborate},
+    ok ${righeModificate},
+    warn ${righeSaltate},
+    err ${righeErrore}`;
 
-  return true;
+  const reportDate    = new Date().toLocaleString("it-IT");
+const deltaYesterday= formattedDelta;
+const listinoRows   = results.map(r=>({
+  pv:        String(r.PV).padStart(4,"0"),
+  product:   String(r.PRODOTTO).replace("HVO+","HVO"),
+  prezzoServ: parseFloat(String(r.PREZZO_SERV).replace(",", ".")),
+  scontoServ: parseFloat(String(r.SCONTO_SERV).replace(",", ".")),
+  prezzoSelf: parseFloat(String(r.PREZZO_SELF).replace(",", ".")),
+  scontoSelf: parseFloat(String(r.SCONTO_SELF).replace(",", ".")),
+  prezzoOpt:  parseFloat(String(r.PREZZO_OPT).replace(",", ".")),
+  scontoOpt:  parseFloat(String(r.SCONTO_OPT).replace(",", ".")),
+  stacco:     parseFloat(String(r.STACCO).replace(",", ".")),
+  ordinato:   parseFloat(String(r.ORDINATO).replace(",", "."))||0,
+  note:       String(r.NOTE)
+}));
+const listinoHtml = buildListinoHtml(listinoRows);
+await sendListinoReport(reportDate, listinoHtml, deltaYesterday);
+return true;
+
+return true;
+
+  
 }
 async function upsertListDistr(
   DataListino: Date,

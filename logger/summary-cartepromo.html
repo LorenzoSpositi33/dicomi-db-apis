@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Report Carte Promo</title>
+  <style>
+    .stats { display:flex; justify-content:space-around; margin-bottom:20px; }
+    .stats div { padding:10px; border-radius:6px; }
+    .stats .ok { background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.4); }
+    .stats .warn { background:rgba(243,156,18,0.2); border:1px solid rgba(243,156,18,0.4); }
+    .stats .err { background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.4); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Report CARTE PROMO del {{reportDate}}</h1>
+    <div class="stats">
+      <div class="ok">OK: {{promoByType.ok}}</div>
+      <div class="warn">Skipped: {{skippedCount}}</div>
+      <div class="err">ERR: {{promoByType.err}}</div>
+    </div>
+    {{promoByType.html}}
+  </div>
+</body>
+</html>
