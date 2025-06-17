@@ -1,16 +1,12 @@
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import fs from "fs";
-import path from "path";
 import Handlebars from "handlebars";
+
 export interface ConsegnatoRow {
   data: string;
   articolo: string;
   qta: number;
-}
-
-export interface ConsegnatoStats {
-  reportDate: string;
-  totalRows: number;
-  rows: ConsegnatoRow[];
 }
 
 export interface DayCard {
@@ -18,7 +14,10 @@ export interface DayCard {
   prods: { article: string; ok: number; warn: number; err: number }[];
 }
 
-const tplSrc = fs.readFileSync(path.join(__dirname, "consegnato.html"), "utf8");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const tplSrc = fs.readFileSync(join(__dirname, "summary-consegnato.html"), "utf8");
 const tpl = Handlebars.compile<{ reportDate: string; dayCards: DayCard[] }>(tplSrc);
 
 export function buildConsegnatoHtml(dayCards: DayCard[]): string {
