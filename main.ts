@@ -1121,29 +1121,16 @@ const rowsFormatted = results.map(r => ({
   TIPO: r.TIPO,
   TOTALE: r.TOTALE,
 }));
-const promoByType = buildCartePromoHtmlSimple({
-  reportDate,
-  rows: rowsFormatted,
-  skippedCount: righeSaltate,
-  ok: righeModificate,
-  err: righeErrore,
-});
-console.log(results[0])
+
 const promoByTypeHtml = buildCartePromoHtmlSimple({
   reportDate,
   rows: rowsFormatted,
   skippedCount: righeSaltate,
-  ok: righeElaborate,  // o numero righe processate correttamente
+  ok: righeModificate,  // o numero righe processate correttamente
   err: righeErrore,    // o numero righe con errori
 });
 
 await sendCartePromoReport(reportDate, promoByTypeHtml, righeSaltate);
-
-
-
-
-
-
 
 
   return true;
