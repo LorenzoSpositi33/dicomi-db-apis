@@ -1,19 +1,103 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Report Listino Distributori</title>
   <style>
-    .card { border:1px solid #ddd; padding:12px; margin-bottom:12px; border-radius:6px; }
-    .card .header { font-weight:bold; margin-bottom:6px; }
-    .delta { float:right; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f6f6f6;
+    }
+    .container {
+      background-color: #ffffff;
+      padding: 20px;
+      border: 1px solid #dddddd;
+      max-width: 900px;
+      margin: auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 20px;
+    }
+    .stats div {
+      flex: 1;
+      padding: 10px;
+      border-radius: 6px;
+      text-align: center;
+      font-weight: bold;
+    }
+    .stats .ok  { background-color: #eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
+    .stats .warn{ background-color: #fff3cd; border:1px solid #f39c12; color:#f39c12; }
+    .stats .err { background-color: #fdecea; border:1px solid #e74c3c; color:#e74c3c; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+    thead {
+      background-color: #f0f0f0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Report LISTINO del {{reportDate}}</h1>
-    <p>Delta vs ieri: {{deltaYesterday}}</p>
-    {{listinoCards}}
+    <div class="header">
+      <h1>Report LISTINO del {{reportDate}}</h1>
+      <p>Delta vs ieri: {{deltaYesterday}}</p>
+    </div>
+
+    <div class="stats">
+      <div class="ok">✅ OK: {{modified}}</div>
+      <div class="warn">⚠️ Skipped: {{skipped}}</div>
+      <div class="err">❌ ERR: {{errored}}</div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>PV</th>
+          <th>Prodotto</th>
+          <th>Prezzo Serv</th>
+          <th>Sconto Serv</th>
+          <th>Prezzo Self</th>
+          <th>Sconto Self</th>
+          <th>Prezzo Opt</th>
+          <th>Sconto Opt</th>
+          <th>Stacco</th>
+          <th>Ordinato</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each rows}}
+        <tr>
+          <td>{{pv}}</td>
+          <td>{{product}}</td>
+          <td>{{prezzoServ}}</td>
+          <td>{{scontoServ}}</td>
+          <td>{{prezzoSelf}}</td>
+          <td>{{scontoSelf}}</td>
+          <td>{{prezzoOpt}}</td>
+          <td>{{scontoOpt}}</td>
+          <td>{{stacco}}</td>
+          <td>{{ordinato}}</td>
+          <td>{{note}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
   </div>
 </body>
 </html>

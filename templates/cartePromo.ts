@@ -1,43 +1,34 @@
-export function buildCartePromoHtmlSimple(stats: {
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import fs from "fs";
+import Handlebars from "handlebars";
+
+export interface CartePromoRow {
+  GIORNO: string;
+  PV: string;
+  TIPO: string;
+  TOTALE: string;
+}
+
+export interface CartePromoStats {
   reportDate: string;
-  rows: {
-    GIORNO: string;
-    PV: string;
-    TIPO: string;
-    TOTALE: string;
-  }[];
+  rows: CartePromoRow[];
   skippedCount: number;
   ok: number;
   err: number;
-}) {
-  const rowsHtml = stats.rows.map(row => `
-    <tr>
-      <td>${row.GIORNO}</td>
-      <td>${row.PV}</td>
-      <td>${row.TIPO}</td>
-      <td>${row.TOTALE}</td>
-    </tr>
-  `).join('');
+}
 
-  return {
-    ok: stats.ok,
-    err: stats.err,
-    html: `
-      <h2>Report del ${stats.reportDate}</h2>
-      <p>Righe Saltate: ${stats.skippedCount}</p>
-      <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
-        <thead>
-          <tr>
-            <th>Giorno</th>
-            <th>PV</th>
-            <th>Tipo</th>
-            <th>Totale</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    `
-  };
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const templatePath = join(__dirname, "../logger/summary-cartepromo.html");
+const tplSrc = fs.readFileSync(templatePath, "utf8");
+// Compiliamo una sola volta il template
+const tpl = Handlebars.compile<CartePromoStats>(tplSrc);
+
+/**
+ * Costruisce l'HTML completo del report "Carte Promo" usando Handlebars
+ * @param stats - oggetto con reportDate, rows, skippedCount, ok, err
+ */
+export function buildCartePromoHtml(stats: CartePromoStats): string {
+  return tpl(stats);
 }

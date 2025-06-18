@@ -11,7 +11,8 @@ import csv from "csv-parser";
 import { parse } from "date-fns";
 import { it } from "date-fns/locale";
 import { DayCard } from "./templates/consegnato.js";
-
+import type { TradingAreaRow } from "./templates/tradingarea.js";
+import { ListinoRow } from "./templates/listino.js";
 // --- CONSEGNATO ---
 import { buildConsegnatoHtml } from "./templates/consegnato.js";
 import { sendConsegnatoReport }  from "./logger/emailSender.js";
@@ -21,7 +22,7 @@ import { buildOrdinatoHtml }     from "./templates/ordinato.js";
 import { sendOrdinatoReport }     from "./logger/emailSender.js";
 
 // --- CARTE PROMO ---
-import { buildCartePromoHtmlSimple }    from "./templates/cartePromo.js";
+import { buildCartePromoHtml }    from "./templates/cartePromo.js";
 import { sendCartePromoReport }   from "./logger/emailSender.js";
 
 // --- TRADING AREA ---
@@ -891,26 +892,24 @@ async function elaboraOrdinato(
 
 
 const reportDate = new Date().toLocaleString("it-IT");
-const mediaGlobal = 0; // se hai una media, sostituisci qui
 
-const summaryTable = `
-  <table border="1" cellpadding="5" cellspacing="0">
-    <thead>
-      <tr><th>Totale</th><th>OK</th><th>WARN</th><th>ERR</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>${righeElaborate}</td><td>${righeModificate}</td><td>${righeSaltate}</td><td>${righeErrore}</td></tr>
-    </tbody>
-  </table>
-`;
+const rows = results.map(r => ({
+  pv:   String(r.PV_NAME).padStart(4, "0"),
+  prod: String(r.PROD_NAME),
+  vol:  Number(String(r.VOL_ORDINATO).replace(",", ".")),
+}));
 
-const ordinatoHtml = buildOrdinatoHtml({
-  reportDate,
-  summaryTable,
-  mediaGlobal,
-});
+const stats = {
+  reportDate: new Date().toLocaleString("it-IT"),
+  mediaGlobal: await getMediaOrdinato(dataOrdinato),
+  rows,
+  ok:           righeModificate,
+  warn:         righeSaltate,
+  err:          righeErrore,
+};
 
-await sendOrdinatoReport(reportDate, summaryTable, mediaGlobal);
+const html = buildOrdinatoHtml(stats);
+await sendOrdinatoReport(html);
 
 
 
@@ -1122,16 +1121,16 @@ const rowsFormatted = results.map(r => ({
   TOTALE: r.TOTALE,
 }));
 
-const promoByTypeHtml = buildCartePromoHtmlSimple({
-  reportDate,
+const stats = {
+  reportDate: new Date().toLocaleString("it-IT"),
   rows: rowsFormatted,
   skippedCount: righeSaltate,
-  ok: righeModificate,  // o numero righe processate correttamente
-  err: righeErrore,    // o numero righe con errori
-});
+  ok: righeModificate,
+  err: righeErrore,
+};
 
-await sendCartePromoReport(reportDate, promoByTypeHtml, righeSaltate);
-
+const fullHtml = buildCartePromoHtml(stats);
+await sendCartePromoReport(fullHtml);
 
   return true;
 }
@@ -1449,25 +1448,27 @@ async function elaboraTradingArea(
 
 const reportDate = new Date().toLocaleString("it-IT");
 
-const tradingAreaRows = [
-  {
-    pv: "N/A",
-    brand: "Generico",
-    addr: "Indirizzo Fittizio",
-    prod: "Prodotto X",
-    main: true,
-    self: righeModificate,
-    serv: righeSaltate,
-    close: righeErrore,
-  },
-];
+const tradingAreaRows: TradingAreaRow[] = results.map(r => ({
+  pv: String(r.PV).padStart(4, "0"),
+  brand: String(r.BANDIERA).trim(),
+  addr: String(r.INDIRIZZO).trim(),
+  prod: String(r.PRODOTTO),
+  self: parseFloat(String(r["PREZZO SELF"]).replace(",", ".")) || 0,
+  serv: parseFloat(String(r["PREZZO SERV"]).replace(",", ".")) || 0,
+  close: parseFloat(String(r["PREZZO CHIUSURA"]).replace(",", ".")) || 0,
+}));
 
-const tradingAreaHtml = buildTradingAreaHtml({
-  reportDate,
+const stats = {
+  reportDate: new Date().toLocaleString("it-IT"),
+  totalRows: tradingAreaRows.length,
+  modified: righeModificate,
+  skipped: righeSaltate,
+  errored: righeErrore,
   rows: tradingAreaRows,
-});
+};
 
-await sendTradingAreaReport(reportDate, tradingAreaHtml);
+const fullHtml = buildTradingAreaHtml(stats);
+await sendTradingAreaReport(fullHtml);
 
 
 
@@ -2030,29 +2031,31 @@ async function elaboraListDistr(
 const reportDate = new Date().toLocaleString("it-IT");
 const deltaYesterday = "+10"; // puoi calcolarlo se vuoi o tenerlo fisso
 
-const listinoRows = [
-  {
-    pv: "PV Test",
-    product: "Prodotto X",
-    prezzoServ: 100,
-    scontoServ: 5,
-    prezzoSelf: 90,
-    scontoSelf: 4,
-    prezzoOpt: 95,
-    scontoOpt: 3,
-    stacco: 5,
-    ordinato: righeModificate,
-    note: "OK",
-  },
-];
-
-const listinoHtml = buildListinoHtml({
-  reportDate,
+const listinoRows: ListinoRow[] = results.map(r => ({
+  pv:         String(r.PV).padStart(4, "0"),
+  product:    String(r.PRODOTTO),
+  prezzoServ: parseFloat(String(r.PREZZO_SERV).replace(",", "."))  || 0,
+  scontoServ: parseFloat(String(r.SCONTO_SERV).replace(",", "."))  || 0,
+  prezzoSelf: parseFloat(String(r.PREZZO_SELF).replace(",", "."))  || 0,
+  scontoSelf: parseFloat(String(r.SCONTO_SELF).replace(",", "."))  || 0,
+  prezzoOpt:  parseFloat(String(r.PREZZO_OPT).replace(",", "."))   || 0,
+  scontoOpt:  parseFloat(String(r.SCONTO_OPT).replace(",", "."))   || 0,
+  stacco:     parseFloat(String(r.STACCO).replace(",", "."))      || 0,
+  ordinato:   parseFloat(String(r.ORDINATO).replace(",", "."))    || 0,
+  note:       String(r.NOTE),
+}));
+const stats = {
+  reportDate:   new Date().toLocaleString("it-IT"),
+  totalRows:    righeElaborate,
+  modified:     righeModificate,
+  skipped:      righeSaltate,
+  errored:      righeErrore,
   deltaYesterday,
-  rows: listinoRows,
-});
+  rows:         listinoRows,
+};
 
-await sendListinoReport(reportDate, listinoHtml, deltaYesterday);
+const fullHtml = buildListinoHtml(stats);
+await sendListinoReport(fullHtml);
 
 
 return true;

@@ -1,29 +1,99 @@
-export function buildFullHtmlCartePromo(reportDate: string, promoByType: { ok: number, err: number, html: string }, skippedCount: number) {
-  return `
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Report Carte Promo</title>
   <style>
-    .stats { display:flex; justify-content:space-around; margin-bottom:20px; }
-    .stats div { padding:10px; border-radius:6px; }
-    .stats .ok { background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.4); }
-    .stats .warn { background:rgba(243,156,18,0.2); border:1px solid rgba(243,156,18,0.4); }
-    .stats .err { background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.4); }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f6f6f6;
+    }
+    .container {
+      background-color: #ffffff;
+      padding: 20px;
+      border: 1px solid #dddddd;
+      max-width: 800px;
+      margin: auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .day-card {
+      background-color: #fafafa;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+    .day-card .data {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .product-card {
+      background-color: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 15px;
+    }
+    .product-name {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    .product-kpi-container {
+      display: flex;
+      gap: 12px;
+    }
+    .product-kpi {
+      flex: 1;
+      padding: 10px;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .err { background-color: #fdecea; border: 1px solid #e74c3c; color: #e74c3c; }
+    .warn { background-color: #fff3cd; border: 1px solid #f39c12; color: #f39c12; }
+    .ok  { background-color: #eafaf1; border: 1px solid #2ecc71; color: #2ecc71; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Report CARTE PROMO del ${{reportDate}}</h1>
-    <div class="stats">
-      <div class="ok">OK: ${{promoByType.ok}}</div>
-      <div class="warn">Skipped: ${{skippedCount}}</div>
-      <div class="err">ERR: ${{promoByType.err}}</div>
+    <div class="header">
+      <h1>Report CARTE PROMO del {{reportDate}}</h1>
     </div>
-    ${{promoByType.html}}
+  <div class="day-card">
+      <div class="data">
+        Statistiche complessive
+      </div>
+      <div class="product-kpi-container">
+        <div class="product-kpi ok">✅ OK<br>{{ok}}</div>
+        <div class="product-kpi warn">⚠️ Skipped<br>{{skippedCount}}</div>
+        <div class="product-kpi err">❌ ERR<br>{{err}}</div>
+      </div>
+    </div>
+    {{#each rows}}
+    <div class="day-card">
+      <div class="data">
+        GIORNO: {{GIORNO}}
+      </div>
+
+      <div class="product-card">
+        <div class="product-name">PV: {{PV}} | Tipo: {{TIPO}}</div>
+        <div class="product-kpi-container">
+          <div class="product-kpi ok">✅ Totale<br>{{TOTALE}}</div>
+        </div>
+      </div>
+    </div>
+    {{/each}}
+
+  
   </div>
 </body>
 </html>
-`;
-}

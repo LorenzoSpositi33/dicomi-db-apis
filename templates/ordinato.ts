@@ -1,30 +1,29 @@
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import fs from "fs";
+import Handlebars from "handlebars";
+
 export interface OrdinatoRow {
-  date: string;
-  total: number;
-  ok: number;
-  warn: number;
-  err: number;
+  pv: string;
+  prod: string;
+  vol: number;
 }
 
 export interface OrdinatoStats {
   reportDate: string;
-  dateFile: string;
-  totalRows: number;
-  avgPast: number;
+  mediaGlobal: number;
   rows: OrdinatoRow[];
 }
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const templatePath = join(__dirname, "../logger/summary-ordinato.html");
+const tplSrc = fs.readFileSync(templatePath, "utf8");
+const tpl = Handlebars.compile<OrdinatoStats>(tplSrc);
 
-export function buildOrdinatoHtml(stats: {
-  reportDate: string;
-  summaryTable: string;
-  mediaGlobal: number;
-}) {
-  return `
-    <div>
-      <h2>Report del ${stats.reportDate}</h2>
-      <p>Media Storica: ${stats.mediaGlobal}</p>
-      ${stats.summaryTable}
-    </div>
-  `;
+/**
+ * Costruisce l'HTML completo del report Ordinato
+ */
+export function buildOrdinatoHtml(stats: OrdinatoStats): string {
+  return tpl(stats);
 }

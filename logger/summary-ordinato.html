@@ -1,19 +1,50 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"/>
   <title>Report Ordinato</title>
   <style>
-    table { width:100%; border-collapse:collapse; }
-    th, td { border:1px solid #ddd; padding:8px; text-align:center; }
-    th { background:#f2f2f2; }
+    body { font-family: Arial, sans-serif; margin:0; padding:20px; background:#f6f6f6; }
+    .container { background:#fff; padding:20px; border:1px solid #ddd; max-width:800px; margin:auto; }
+    .header { text-align:center; margin-bottom:20px; }
+    .stats { display:flex; justify-content:space-around; margin-bottom:20px; }
+    .stats div { flex:1; padding:10px; border-radius:6px; text-align:center; font-weight:bold; }
+    .stats .ok   { background:#eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
+    .stats .warn { background:#fff3cd; border:1px solid #f39c12; color:#f39c12; }
+    .stats .err  { background:#fdecea; border:1px solid #e74c3c; color:#e74c3c; }
+    .day-card { background:#fafafa; border:1px solid #ccc; border-radius:8px; padding:15px; margin-bottom:20px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+    .day-card .data { font-size:16px; font-weight:bold; margin-bottom:10px; }
+    .product-card { background:#fff; border:1px solid #ddd; border-radius:6px; padding:10px; margin-bottom:15px; }
+    .product-name { font-size:14px; font-weight:bold; margin-bottom:8px; }
+    .product-kpi-container { display:flex; gap:12px; }
+    .product-kpi { flex:1; padding:10px; border-radius:6px; text-align:center; font-size:13px; font-weight:bold; }
+    .ok   { background:#eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
+    .warn { background:#fff3cd; border:1px solid #f39c12; color:#f39c12; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Report ORDINATO del {{reportDate}}</h1>
-    <p>Media ultime 3 settimane: {{mediaGlobal}}</p>
-    {{summaryTable}}
+    <div class="header">
+      <h1>Report ORDINATO del {{reportDate}}</h1>
+    </div>
+
+    <div class="stats">
+      <div class="ok">✅ OK: {{ok}}</div>
+      <div class="warn">⚠️ WARN: {{warn}}</div>
+      <div class="err">❌ ERR: {{err}}</div>
+    </div>
+
+    {{#each rows}}
+    <div class="day-card">
+      <div class="data">PV: {{pv}}</div>
+      <div class="product-card">
+        <div class="product-name">Prodotto: {{prod}}</div>
+        <div class="product-kpi-container">
+          <div class="product-kpi ok">Volume Ordinato<br>{{vol}}</div>
+        </div>
+      </div>
+    </div>
+    {{/each}}
   </div>
 </body>
 </html>

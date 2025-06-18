@@ -54,52 +54,23 @@ export async function sendConsegnatoReport(html: string) {
   await sendHtmlDirectly("Report ETL Consegnato", html);
 }
 
-export async function sendOrdinatoReport(
-  reportDate: string,
-  summaryTableHtml: string,
-  mediaGlobal: number
-) {
-  await sendFromTemplate("summary-ordinato.html", "Report ETL Ordinato", {
-    reportDate,
-    summaryTable: summaryTableHtml,
-    mediaGlobal,
-  });
+export async function sendOrdinatoReport(html: string) {
+  await sendHtmlDirectly("Report ETL Ordinato", html);
 }
 
-export async function sendCartePromoReport(
-  reportDate: string,
-  promoByType: { ok: number; err: number; html: string },
-  skippedCount: number
-) {
-  await sendFromTemplate(
-    "summary-cartepromo.html",
-    "Report ETL Carte Promo",
-    { reportDate, promoByType, skippedCount }
-  );
+export async function sendCartePromoReport(html: string) {
+  await sendHtmlDirectly("Report ETL Carte Promo", html);
 }
 
 
-export async function sendTradingAreaReport(
-  reportDate: string,
-  priceCardsHtml: string
-) {
-  await sendFromTemplate("summary-tradingarea.html", "Report ETL Trading Area", {
-    reportDate,
-    areaCards: priceCardsHtml,
-  });
+export async function sendTradingAreaReport(html: string) {
+  await sendHtmlDirectly("Report ETL Trading Area", html);
 }
 
-export async function sendListinoReport(
-  reportDate: string,
-  listinoCardsHtml: string,
-  deltaYesterday: string
-) {
-  await sendFromTemplate("summary-listino.html", "Report ETL Listino Distributori", {
-    reportDate,
-    listinoCards: listinoCardsHtml,
-    deltaYesterday,
-  });
+export async function sendListinoReport(html: string) {
+  await sendHtmlDirectly("Report ETL Listino Distributori", html);
 }
+
 
 export async function sendCarteCreditoReport(
   reportDate: string,
