@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "./logger.js";
 import handlebars from "handlebars";
-
+import type { CarteCreditoRow } from "../templates/carteCredito.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,14 +76,14 @@ export async function sendCarteCreditoReport(
   reportDate: string,
   totalRows: number,
   newCards: number,
-  errors: number
+  errors: number,
+  rows: CarteCreditoRow[]
 ) {
-  await sendFromTemplate("summary-cartecredito.html", "Report ETL Carte Credito", {
-    reportDate,
-    totalRows,
-    newCards,
-    errors,
-  });
+  await sendFromTemplate(
+    "summary-cartecredito.html",
+    "Report ETL Carte Credito",
+    { reportDate, totalRows, newCards, errors, rows }
+  );
 }
 
 // Export utile se vuoi usare invio html diretto altrove

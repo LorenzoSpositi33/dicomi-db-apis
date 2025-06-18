@@ -13,6 +13,8 @@ import { it } from "date-fns/locale";
 import { DayCard } from "./templates/consegnato.js";
 import type { TradingAreaRow } from "./templates/tradingarea.js";
 import { ListinoRow } from "./templates/listino.js";
+import type { CarteCreditoRow, CarteCreditoStats } from "./templates/carteCredito.js";
+
 // --- CONSEGNATO ---
 import { buildConsegnatoHtml } from "./templates/consegnato.js";
 import { sendConsegnatoReport }  from "./logger/emailSender.js";
@@ -1722,16 +1724,30 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     new ${righeNuoveCarte}`;
 
 
-const reportDate = new Date().toLocaleString("it-IT");
 
-const carteCreditoHtml = buildCarteCreditoHtml({
-  reportDate,
-  totalRows: righeElaborate,
-  newCards: righeModificate, // oppure usa cartaNuove se disponibile
-  errors: righeErrore,
-});
 
-await sendCarteCreditoReport(reportDate, righeElaborate, righeModificate, righeErrore);
+// 1) Mappa i risultati in CarteCreditoRow[]
+const rows: CarteCreditoRow[] = results.map(r => ({
+  tipoTrs:     String(r["TIPO TRS"]),
+  datetime:    String(r.DATATIME),
+  pv:          String(r.PV).padStart(4, "0"),
+  indirizzo:   String(r["INDIRIZZO PV"]),
+  tipoCarta:   String(r["TIPO CARTA"]),
+  codProd:     String(r["COD.PROD"]),
+  descrProd:   String(r["DESCR.PROD"]),
+  volume:      parseFloat(String(r.VOLUME).replace(",", "."))   || 0,
+  importoAccr: parseFloat(String(r["IMPORTO ACCR"]).replace(",", ".")) || 0,
+  prezzoAccr:  parseFloat(String(r["PRZ ACCR"]).replace(",", "."))   || 0,
+}));
+
+// 2) Prepara i KPI
+const reportDate  = new Date().toLocaleString("it-IT");
+const totalRows   = righeElaborate;
+const newCards    = righeNuoveCarte;
+const errors      = righeErrore;
+
+// 3) Invia tutto al template
+await sendCarteCreditoReport(reportDate, totalRows, newCards, errors, rows);
 
 
 

@@ -1,22 +1,49 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"/>
   <title>Report Carte Credito</title>
   <style>
-    .summary { margin-bottom:20px; }
-    .summary div { margin:4px 0; }
+    body { font-family: Arial, sans-serif; margin:0; padding:20px; background:#f6f6f6; }
+    .container { background:#fff; padding:20px; border:1px solid #ddd; max-width:800px; margin:auto; }
+    .header { text-align:center; margin-bottom:20px; }
+    .stats { display:flex; justify-content:space-around; margin-bottom:20px; }
+    .stats div { flex:1; padding:10px; border-radius:6px; text-align:center; font-weight:bold; }
+    .stats .total { background:#eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
+    .stats .new   { background:#fff3cd; border:1px solid #f39c12; color:#f39c12; }
+    .stats .error { background:#fdecea; border:1px solid #e74c3c; color:#e74c3c; }
+
+    .row-card { background:#fafafa; border:1px solid #ccc; border-radius:8px; padding:15px; margin-bottom:10px; }
+    .row-card .title { font-size:14px; font-weight:bold; margin-bottom:8px; }
+    .row-card .fields { font-size:13px; }
+    .row-card .fields div { margin-bottom:4px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Report CARTE CREDITO del {{reportDate}}</h1>
-    <div class="summary">
-      <div>Totale righe: {{totalRows}}</div>
-      <div>Nuove carte create: {{newCards}}</div>
-      <div>Errori: {{errors}}</div>
+    <div class="header">
+      <h1>Report CARTE CREDITO del {{reportDate}}</h1>
     </div>
-    <!-- qui eventualmente puoi inserire anche una tabella dettagliata -->
+
+    <div class="stats">
+      <div class="total">Totale righe<br>{{totalRows}}</div>
+      <div class="new">Nuove Carte<br>{{newCards}}</div>
+      <div class="error">Errori<br>{{errors}}</div>
+    </div>
+
+    {{#each rows}}
+    <div class="row-card">
+      <div class="title">PV {{pv}} – {{tipoTrs}} @ {{datetime}}</div>
+      <div class="fields">
+        <div><strong>Indirizzo:</strong> {{indirizzo}}</div>
+        <div><strong>Tipo Carta:</strong> {{tipoCarta}}</div>
+        <div><strong>Cod.Prod:</strong> {{codProd}} – {{descrProd}}</div>
+        <div><strong>Volume:</strong> {{volume}}</div>
+        <div><strong>Importo Accr.:</strong> {{importoAccr}}</div>
+        <div><strong>Prezzo Accr.:</strong> {{prezzoAccr}}</div>
+      </div>
+    </div>
+    {{/each}}
   </div>
 </body>
 </html>
