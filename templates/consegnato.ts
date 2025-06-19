@@ -19,9 +19,9 @@ export interface DayCard {
 export interface ConsegnatoStats {
   reportDate: string;
   dayCards: DayCard[];
-  ok: number
-  err: number
-  warn: number
+ modified: number;
+  skipped: number;
+  errored: number;
   logDump: string;
   mail_log: boolean;
 }

@@ -662,9 +662,9 @@ const logDump: string = memoryTransport.getLogSummary();
 const stats: ConsegnatoStats = {
   reportDate: new Date().toLocaleString("it-IT"),
   dayCards:   elencoDate,    
-  ok: righeModificate,
-  warn: righeSaltate,
-  err: righeErrore,
+  modified:  righeModificate,
+  skipped:   righeSaltate,
+  errored:     righeErrore,
   logDump,                 
   mail_log                  
 };
@@ -909,9 +909,9 @@ const stats = {
   reportDate: new Date().toLocaleString("it-IT"),
   mediaGlobal: await getMediaOrdinato(dataOrdinato),
   rows,
-  ok:           righeModificate,
-  warn:         righeSaltate,
-  err:          righeErrore,
+  modified:  righeModificate,
+  skipped:   righeSaltate,
+  errored:     righeErrore,
   logDump,
   mail_log
 };
@@ -1135,9 +1135,9 @@ const logDump = memoryTransport.getLogSummary();
 const stats = {
   reportDate,
   rows: rowsFormatted,
-  skippedCount: righeSaltate,
-  ok:           righeModificate,
-  err:          righeErrore,
+ modified:  righeModificate,
+  skipped:   righeSaltate,
+  errored:     righeErrore,
   logDump,
   mail_log,
 };
@@ -1740,10 +1740,10 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 const logDump = memoryTransport.getLogSummary();
 const stats: CarteCreditoStats = {
   reportDate: new Date().toLocaleString("it-IT"),
-  totalRows:  righeElaborate,
-  newCards:   righeNuoveCarte,
-  errors:     righeErrore,
-  logDump,      // aggiungi qui il testo dei warn/error
+  modified:  righeModificate,
+  skipped:   righeSaltate,
+  errored:     righeErrore,
+  logDump,      
   mail_log
 };
 

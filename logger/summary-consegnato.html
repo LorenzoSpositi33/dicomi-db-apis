@@ -2,63 +2,46 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8"/>
-  <title>Report Consegnato</title>
+  <title>{{title}}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin:0; padding:20px; background:#f6f6f6; }
-    .container { background:#fff; padding:20px; border:1px solid #ddd; max-width:800px; margin:auto; }
-    .header { text-align:center; margin-bottom:20px; }
-    .stats { display:flex; justify-content:space-around; margin-bottom:20px; }
-    .stats div { flex:1; padding:10px; border-radius:6px; text-align:center; font-weight:bold; }
-    .stats .ok   { background:#eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
-    .stats .warn { background:#fff3cd; border:1px solid #f39c12; color:#f39c12; }
-    .stats .err  { background:#fdecea; border:1px solid #e74c3c; color:#e74c3c; }
-    .log-dump {
-      background:#f0f0f0;
-      border:1px solid #ccc;
-      padding:10px;
-      white-space:pre-wrap;
-      font-family:monospace;
-      max-height:400px;
-      overflow-y:auto;
-      margin-top:20px;
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f6f6f6; }
+    .container { background-color: #ffffff; padding: 20px; border: 1px solid #dddddd; max-width: 600px; margin: auto; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .kpi-container { display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 20px; }
+    .kpi { background-color: #efefef; padding: 10px; margin: 5px; flex: 1 0 22%; min-width: 100px; text-align: center; border-radius: 4px; }
+    .kpi strong { font-size: 14px; }
+    .kpi span { display: block; margin-top: 8px; }
+    .log-dump { background-color: #f0f0f0; border: 1px solid #ccc; padding: 10px; font-family: monospace; white-space: pre-wrap; overflow-x: auto; }
+    @media screen and (min-width: 1024px) {
+      .container { max-width: 1000px; }
+      .kpi-container { flex-wrap: nowrap; }
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Report CONSEGNATO del {{reportDate}}</h1>
+      <h1>Estrazione del {{reportDate}}</h1>
     </div>
-
-    <!-- Totali complessivi: ok, warn, err (assumi che siano passati come top-level) -->
-    <div class="stats">
-      <div class="ok">✅ OK: {{ok}}</div>
-      <div class="warn">⚠️ WARN: {{warn}}</div>
-      <div class="err">❌ ERR: {{err}}</div>
-    </div>
-
-    <!-- Facoltativo: se vuoi ancora mostrare i dayCards, riattiva questo blocco -->
-    {{!--
-    {{#each dayCards}}
-    <div class="day-card">
-      <div class="data">Data: {{date}}</div>
-      <div class="product-kpi-container">
-        {{#each prods}}
-          <div class="product-kpi ok">✅ OK: {{ok}}</div>
-          <div class="product-kpi warn">⚠️ WARN: {{warn}}</div>
-          <div class="product-kpi err">❌ ERR: {{err}}</div>
-        {{/each}}
+    <div class="kpi-container">
+      <div class="kpi">
+        <strong>❌ ID Impianto<br><span style="color: red;">NON raggiunto</span></strong>
+        <span id="kpi1">{{modified}}</span>
+      </div>
+      <div class="kpi">
+        <strong>⚠️ ID Impianto raggiunto,<br><span style="color: darkorange;">Nessuna erogazione individuata</span></strong>
+        <span id="kpi2">{{skipped}}</span>
+      </div>
+      <div class="kpi">
+        <strong>✅ ID Impianto raggiunto,<br><span style="color: green;">Erogazioni scaricate</span></strong>
+        <span id="kpi4">{{errored}}</span>
       </div>
     </div>
-    {{/each}}
-    --}}
-
-    {{#if mail_log}}
-    <div class="log-section">
-      <h2>📝 Log di esecuzione:</h2>
+    <div>
+      <h2>Dettagli di esecuzione:</h2>
       <pre class="log-dump">{{logDump}}</pre>
     </div>
-    {{/if}}
   </div>
 </body>
 </html>
+

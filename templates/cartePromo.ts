@@ -13,9 +13,9 @@ export interface CartePromoRow {
 export interface CartePromoStats {
   reportDate: string;
   rows: CartePromoRow[];
-  skippedCount: number;
-  ok: number;
-  err: number;
+  modified: number;
+  skipped: number;
+  errored: number;
   logDump?: string;       // opzionale
   mail_log?: boolean;     // opzionale
 }

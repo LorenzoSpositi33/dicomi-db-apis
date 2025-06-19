@@ -1,144 +1,46 @@
 <!DOCTYPE html>
 <html lang="it">
-
 <head>
-   <meta charset="UTF-8">
-   <title>Report Email</title>
-   <style>
-      /* Stili base per email */
-      body {
-         font-family: Arial, sans-serif;
-         margin: 0;
-         padding: 20px;
-         background-color: #f6f6f6;
-      }
-
-      .container {
-         background-color: #ffffff;
-         padding: 20px;
-         border: 1px solid #dddddd;
-         max-width: 600px;
-         margin: auto;
-      }
-
-      .header {
-         text-align: center;
-         margin-bottom: 20px;
-      }
-
-      .kpi-container {
-         display: flex;
-         flex-wrap: wrap;
-         justify-content: space-between;
-         margin-bottom: 20px;
-      }
-
-      .kpi {
-         background-color: #efefef;
-         padding: 10px;
-         margin: 5px;
-         flex: 1 0 22%;
-         /* Ogni KPI occuperà il 22% della larghezza del container */
-         min-width: 100px;
-         text-align: center;
-         border-radius: 4px;
-      }
-
-      /* Riduci la dimensione del font per i titoli dei KPI */
-      .kpi strong {
-         font-size: 14px;
-      }
-
-      /* Aggiungi spazio tra l'etichetta e il valore */
-      .kpi span[id] {
-         display: block;
-         margin-top: 8px;
-      }
-
-      /* Sezione info impianto */
-      .plant-info {
-         background-color: #f0f0f0;
-         border: 1px solid #ccc;
-         padding: 10px;
-         padding-top: 0px;
-         border-radius: 4px;
-         margin-bottom: 20px;
-      }
-
-      .plant-info p {
-         margin: 5px 0;
-      }
-
-      /* Tabella per la lista dei competitor */
-      table.competitor-table {
-         width: 100%;
-         border-collapse: collapse;
-         margin-bottom: 20px;
-      }
-
-      table.competitor-table th,
-      table.competitor-table td {
-         border: 1px solid #ddd;
-         padding: 8px;
-         text-align: left;
-      }
-
-      table.competitor-table th {
-         background-color: #f2f2f2;
-      }
-
-      .log-dump {
-         background-color: #f0f0f0;
-         border: 1px solid #ccc;
-         padding: 10px;
-         font-family: monospace;
-         white-space: pre-wrap;
-         overflow-x: auto;
-      }
-
-      /* Media query per schermi larghi */
-      @media screen and (min-width: 1024px) {
-         .container {
-            max-width: 1000px;
-         }
-
-         .kpi-container {
-            flex-wrap: nowrap;
-         }
-      }
-   </style>
+  <meta charset="UTF-8">
+  <title>Report Erogazioni</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f6f6f6; }
+    .container { background-color: #ffffff; padding: 20px; border: 1px solid #dddddd; max-width: 600px; margin: auto; }
+    .header { text-align: center; margin-bottom: 20px; }
+    .kpi-container { display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 20px; }
+    .kpi { background-color: #efefef; padding: 10px; margin: 5px; flex: 1 0 22%; min-width: 100px; text-align: center; border-radius: 4px; }
+    .kpi strong { font-size: 14px; }
+    .kpi span { display: block; margin-top: 8px; }
+    .log-dump { background-color: #f0f0f0; border: 1px solid #ccc; padding: 10px; font-family: monospace; white-space: pre-wrap; overflow-x: auto; }
+    @media screen and (min-width: 1024px) {
+      .container { max-width: 1000px; }
+      .kpi-container { flex-wrap: nowrap; }
+    }
+  </style>
 </head>
-
 <body>
-   <div class="container">
-      <!-- Titolo con data dinamica -->
-      <div class="header">
-         <h1>Estrazione del <span id="report-date">[DATA]</span></h1>
+  <div class="container">
+    <div class="header">
+      <h1>Estrazione del {{reportDate}}</h1>
+    </div>
+    <div class="kpi-container">
+      <div class="kpi">
+        <strong>❌ ID Impianto<br><span style="color: red;">NON raggiunto</span></strong>
+        <span id="kpi1">{{modified}}</span>
       </div>
-
-      <!-- Sezione KPI dinamici -->
-      <div class="kpi-container">
-         <div class="kpi">
-            <strong>❌ ID Impianto<br><span style="color: red;">NON raggiunto</span></strong><br>
-            <span id="kpi1">[VAL CODICE 1]</span>
-         </div>
-         <div class="kpi">
-            <strong>⚠️ ID Impianto raggiunto,<br><span style="color: darkorange;">Nessuna erogazione
-                  individuata</span></strong><br>
-            <span id="kpi2">[VAL CODICE 2]</span>
-         </div>
-         <div class="kpi">
-            <strong>✅ ID Impianto raggiunto,<br><span style="color: green;">Erogazioni scaricate</span></strong><br>
-            <span id="kpi4">[VAL CODICE 0]</span>
-         </div>
+      <div class="kpi">
+        <strong>⚠️ ID Impianto raggiunto,<br><span style="color: darkorange;">Nessuna erogazione individuata</span></strong>
+        <span id="kpi2">{{skipped}}</span>
       </div>
-
-      <!-- Sezione per il dump del log -->
-      <div>
-         <h2>Dettagli di esecuzione:</h2>
-         <pre class="log-dump">[LOG DUMP]</pre>
+      <div class="kpi">
+        <strong>✅ ID Impianto raggiunto,<br><span style="color: green;">Erogazioni scaricate</span></strong>
+        <span id="kpi4">{{errored}}</span>
       </div>
-   </div>
+    </div>
+    <div>
+      <h2>Dettagli di esecuzione:</h2>
+      <pre class="log-dump">{{logDump}}</pre>
+    </div>
+  </div>
 </body>
-
 </html>

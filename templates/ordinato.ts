@@ -13,6 +13,9 @@ export interface OrdinatoStats {
   reportDate: string;
   mediaGlobal: number;
   rows: OrdinatoRow[];
+  modified: number;
+  skipped: number;
+  errored: number;
 }
 
 const __filename = fileURLToPath(import.meta.url);
