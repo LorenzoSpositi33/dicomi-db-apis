@@ -25,6 +25,7 @@ export interface ListinoStats {
   errored: number;
   deltaYesterday: string;
   rows: ListinoRow[];
+  logDump: string;         // aggiunto per mostrare il dump
 }
 
 const __filename = fileURLToPath(import.meta.url);

@@ -20,6 +20,7 @@ export interface TradingAreaStats {
   skipped: number;
   errored: number;
   rows: TradingAreaRow[];
+  logDump: string;    // per includere il dump dei log
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +32,7 @@ const tpl = Handlebars.compile<TradingAreaStats>(tplSrc);
 
 /**
  * Costruisce l'HTML completo del report Trading Area usando Handlebars
- * @param stats - oggetto con reportDate, totalRows, modified, skipped, errored, rows
+ * @param stats - oggetto con reportDate, totalRows, modified, skipped, errored, rows, logDump
  */
 export function buildTradingAreaHtml(stats: TradingAreaStats): string {
   return tpl(stats);

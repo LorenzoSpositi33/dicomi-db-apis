@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Instanza di MemoryTransport per accumulare i log destinati alla mail
-export const memoryTransport = new MemoryTransport({ level: "info" });
+const memoryTransport = new MemoryTransport();
 
 // Configura Winston
 const logger = winston.createLogger({
@@ -45,6 +45,7 @@ const logger = winston.createLogger({
         })
       ),
     }),
+    
     new winston.transports.File({
       filename: path.join(__dirname, "..", "logs", "errors.log"),
       level: "error",
@@ -63,4 +64,6 @@ const logger = winston.createLogger({
   ],
 });
 
-export { logger };
+
+logger.add(memoryTransport);
+export { logger, memoryTransport };

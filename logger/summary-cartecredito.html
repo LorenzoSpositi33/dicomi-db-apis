@@ -17,16 +17,17 @@
     .row-card .title { font-size:14px; font-weight:bold; margin-bottom:8px; }
     .row-card .fields { font-size:13px; }
     .row-card .fields div { margin-bottom:4px; }
+
     .log-dump {
-    background-color: #f0f0f0;
-    border: 1px solid #ccc;
-    padding: 10px;
-    white-space: pre-wrap;
-    font-family: monospace;
-    max-height: 400px;
-    overflow-y: auto;
-    margin-top: 20px;
-  }
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
@@ -41,9 +42,25 @@
       <div class="error">Errori<br>{{errors}}</div>
     </div>
 
+    {{#if mail_log}}
     <div class="log-section">
-    <h2>📝 Log di esecuzione:</h2>
-    <pre class="log-dump">{{logDump}}</pre>
+      <h2>📝 Log di esecuzione:</h2>
+      <pre class="log-dump">{{logDump}}</pre>
+    </div>
+    {{/if}}
+
+    <h2>Dettaglio Transazioni</h2>
+    {{#each rows}}
+      <div class="row-card">
+        <div class="title">{{tipoTrs}} — {{datetime}}</div>
+        <div class="fields">
+          <div><strong>PV:</strong> {{pv}}   <strong>Indirizzo:</strong> {{indirizzo}}</div>
+          <div><strong>Tipo Carta:</strong> {{tipoCarta}} ({{codProd}} – {{descrProd}})</div>
+          <div><strong>Volume:</strong> {{volume}}   <strong>Importo Accr.:</strong> {{importoAccr}}   <strong>Prezzo Accr.:</strong> {{prezzoAccr}}</div>
+        </div>
+      </div>
+    {{/each}}
+
   </div>
 </body>
 </html>

@@ -72,19 +72,6 @@ export async function sendListinoReport(html: string) {
 }
 
 
-export async function sendCarteCreditoReport(
-  reportDate: string,
-  totalRows: number,
-  newCards: number,
-  errors: number,
-  rows: CarteCreditoRow[]
-) {
-  await sendFromTemplate(
-    "summary-cartecredito.html",
-    "Report ETL Carte Credito",
-    { reportDate, totalRows, newCards, errors, rows }
-  );
+export async function sendCarteCreditoReport(html: string) {
+  await sendHtmlDirectly("Report ETL Carte Credito", html);
 }
-
-// Export utile se vuoi usare invio html diretto altrove
-export { sendHtmlDirectly };

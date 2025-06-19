@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Report Carte Promo</title>
   <style>
-    body {
+       body {
       font-family: Arial, sans-serif;
       margin: 0;
       padding: 20px;
@@ -14,63 +14,57 @@
       background-color: #ffffff;
       padding: 20px;
       border: 1px solid #dddddd;
-      max-width: 800px;
+      max-width: 900px;
       margin: auto;
     }
     .header {
       text-align: center;
       margin-bottom: 20px;
     }
-    .day-card {
-      background-color: #fafafa;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-    }
-    .day-card .data {
-      font-size: 16px;
-      font-weight: bold;
-      margin-bottom: 10px;
-    }
-    .product-card {
-      background-color: #ffffff;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 10px;
-      margin-bottom: 15px;
-    }
-    .product-name {
+    .header p {
       font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 8px;
+      color: #555;
     }
-    .product-kpi-container {
+    .stats {
       display: flex;
-      gap: 12px;
+      justify-content: space-around;
+      margin-bottom: 20px;
     }
-    .product-kpi {
+    .stats div {
       flex: 1;
       padding: 10px;
       border-radius: 6px;
       text-align: center;
-      font-size: 13px;
       font-weight: bold;
     }
-    .err { background-color: #fdecea; border: 1px solid #e74c3c; color: #e74c3c; }
-    .warn { background-color: #fff3cd; border: 1px solid #f39c12; color: #f39c12; }
-    .ok  { background-color: #eafaf1; border: 1px solid #2ecc71; color: #2ecc71; }
+    .stats .ok   { background-color: #eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
+    .stats .warn { background-color: #fff3cd; border:1px solid #f39c12; color:#f39c12; }
+    .stats .err  { background-color: #fdecea; border:1px solid #e74c3c; color:#e74c3c; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+      font-size: 13px;
+    }
+    thead {
+      background-color: #f0f0f0;
+    }
     .log-dump {
-    background-color: #f0f0f0;
-    border: 1px solid #ccc;
-    padding: 10px;
-    white-space: pre-wrap;
-    font-family: monospace;
-    max-height: 400px;
-    overflow-y: auto;
-    margin-top: 20px;
-  }
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
@@ -78,19 +72,19 @@
     <div class="header">
       <h1>Report CARTE PROMO del {{reportDate}}</h1>
     </div>
-  <div class="day-card">
-      <div class="data">
-        Statistiche complessive
-      </div>
-      <div class="product-kpi-container">
-        <div class="product-kpi ok">✅ OK<br>{{ok}}</div>
-        <div class="product-kpi warn">⚠️ Skipped<br>{{skippedCount}}</div>
-        <div class="product-kpi err">❌ ERR<br>{{err}}</div>
-      </div>
+
+    <div class="stats">
+      <div class="ok">✅ OK<br>{{ok}}</div>
+      <div class="warn">⚠️ Skipped<br>{{skippedCount}}</div>
+      <div class="err">❌ ERR<br>{{err}}</div>
     </div>
+
+    {{#if mail_log}}
     <div class="log-section">
-    <h2>📝 Log di esecuzione:</h2>
-    <pre class="log-dump">{{logDump}}</pre>
+      <h2>📝 Log di esecuzione:</h2>
+      <pre class="log-dump">{{logDump}}</pre>
+    </div>
+    {{/if}}
   </div>
 </body>
 </html>

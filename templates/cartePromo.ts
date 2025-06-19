@@ -16,18 +16,18 @@ export interface CartePromoStats {
   skippedCount: number;
   ok: number;
   err: number;
+  logDump?: string;       // opzionale
+  mail_log?: boolean;     // opzionale
 }
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const templatePath = join(__dirname, "../logger/summary-cartepromo.html");
 const tplSrc = fs.readFileSync(templatePath, "utf8");
-// Compiliamo una sola volta il template
 const tpl = Handlebars.compile<CartePromoStats>(tplSrc);
 
 /**
  * Costruisce l'HTML completo del report "Carte Promo" usando Handlebars
- * @param stats - oggetto con reportDate, rows, skippedCount, ok, err
  */
 export function buildCartePromoHtml(stats: CartePromoStats): string {
   return tpl(stats);

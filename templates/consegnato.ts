@@ -15,22 +15,26 @@ export interface DayCard {
   prods: { article: string; ok: number; warn: number; err: number }[];
 }
 
+// Nuova interfaccia che include logDump e mail_log
+export interface ConsegnatoStats {
+  reportDate: string;
+  dayCards: DayCard[];
+  ok: number
+  err: number
+  warn: number
+  logDump: string;
+  mail_log: boolean;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const tplSrc = fs.readFileSync(join(__dirname, "../logger/summary-consegnato.html"), "utf8");
-const tpl = Handlebars.compile<{ reportDate: string; dayCards: DayCard[] }>(tplSrc);
+const templatePath = join(__dirname, "../logger/summary-consegnato.html");
+const tplSrc = readFileSync(templatePath, "utf8");
+// Compiliamo ora con la nuova interfaccia
+const tpl = Handlebars.compile<ConsegnatoStats>(tplSrc);
 
-export function buildConsegnatoHtml(stats: DayCard[]): string {
-  const templatePath = join(__dirname, "../logger/summary-consegnato.html");
-  const tplSrc = readFileSync(templatePath, "utf8");
-
-  const template = Handlebars.compile(tplSrc);
-  const html = template({
-    reportDate: new Date().toLocaleString("it-IT"),
-    dayCards: stats, // usa esattamente questa chiave: `dayCards`
-  });
-
-  return html;
+export function buildConsegnatoHtml(stats: ConsegnatoStats): string {
+  // stats contiene reportDate, dayCards, logDump e mail_log
+  return tpl(stats);
 }
-

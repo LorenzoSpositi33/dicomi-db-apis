@@ -17,7 +17,7 @@ import {  memoryTransport } from "./logger/logger.js";
 import type { CarteCreditoRow, CarteCreditoStats } from "./templates/carteCredito.js";
 
 // --- CONSEGNATO ---
-import { buildConsegnatoHtml } from "./templates/consegnato.js";
+import { buildConsegnatoHtml, ConsegnatoStats  } from "./templates/consegnato.js";
 import { sendConsegnatoReport }  from "./logger/emailSender.js";
 
 // --- ORDINATO ---
@@ -29,11 +29,11 @@ import { buildCartePromoHtml }    from "./templates/cartePromo.js";
 import { sendCartePromoReport }   from "./logger/emailSender.js";
 
 // --- TRADING AREA ---
-import { buildTradingAreaHtml }   from "./templates/tradingarea.js";
+import { buildTradingAreaHtml,TradingAreaStats }   from "./templates/tradingarea.js";
 import { sendTradingAreaReport }  from "./logger/emailSender.js";
 
 // --- LISTINO DISTRIBUTORI ---
-import { buildListinoHtml }       from "./templates/listino.js";
+import { buildListinoHtml,ListinoStats }       from "./templates/listino.js";
 import { sendListinoReport }      from "./logger/emailSender.js";
 
 import { buildCarteCreditoHtml }       from "./templates/carteCredito.js";
@@ -658,18 +658,20 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   
 
 const reportDate = new Date().toLocaleString("it-IT");
+const logDump: string = memoryTransport.getLogSummary();
+const stats: ConsegnatoStats = {
+  reportDate: new Date().toLocaleString("it-IT"),
+  dayCards:   elencoDate,    
+  ok: righeModificate,
+  warn: righeSaltate,
+  err: righeErrore,
+  logDump,                 
+  mail_log                  
+};
 
-const stats: DayCard[] = [
-  {
-    date: reportDate,
-    prods: [
-      { article: "Totale", ok: righeModificate, warn: righeSaltate, err: righeErrore },
-    ],
-  },
-];
-
-const dayCardsHtml = buildConsegnatoHtml(stats);
-await sendConsegnatoReport(dayCardsHtml); 
+// chiama il builder passando l'oggetto giusto
+const html = buildConsegnatoHtml(stats);
+await sendConsegnatoReport(html);
 
 
 
@@ -913,13 +915,10 @@ const stats = {
   logDump,
   mail_log
 };
-
-const html = buildOrdinatoHtml(stats);
 await new Promise(r => setImmediate(r));
+const html = buildOrdinatoHtml(stats);
+
 const entries = memoryTransport.getLogEntries(); 
-
-memoryTransport.clearLogs();
-
 
 await sendOrdinatoReport(html);
 
@@ -1132,15 +1131,16 @@ const rowsFormatted = results.map(r => ({
   TIPO: r.TIPO,
   TOTALE: r.TOTALE,
 }));
-
+const logDump = memoryTransport.getLogSummary();
 const stats = {
-  reportDate: new Date().toLocaleString("it-IT"),
+  reportDate,
   rows: rowsFormatted,
   skippedCount: righeSaltate,
-  ok: righeModificate,
-  err: righeErrore,
+  ok:           righeModificate,
+  err:          righeErrore,
+  logDump,
+  mail_log,
 };
-
 const fullHtml = buildCartePromoHtml(stats);
 await sendCartePromoReport(fullHtml);
 
@@ -1469,19 +1469,19 @@ const tradingAreaRows: TradingAreaRow[] = results.map(r => ({
   serv: parseFloat(String(r["PREZZO SERV"]).replace(",", ".")) || 0,
   close: parseFloat(String(r["PREZZO CHIUSURA"]).replace(",", ".")) || 0,
 }));
-
-const stats = {
+const logDump = memoryTransport.getLogSummary();
+const stats: TradingAreaStats = {
   reportDate: new Date().toLocaleString("it-IT"),
-  totalRows: tradingAreaRows.length,
-  modified: righeModificate,
-  skipped: righeSaltate,
-  errored: righeErrore,
-  rows: tradingAreaRows,
+  totalRows:  tradingAreaRows.length,
+  modified:   righeModificate,
+  skipped:    righeSaltate,
+  errored:    righeErrore,
+  rows:       tradingAreaRows,
+  logDump,    // includi qui il testo dei warn/errori
 };
 
 const fullHtml = buildTradingAreaHtml(stats);
 await sendTradingAreaReport(fullHtml);
-
 
 
 
@@ -1736,26 +1736,20 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
 
 
-const rows: CarteCreditoRow[] = results.map(r => ({
-  tipoTrs:     String(r["TIPO TRS"]),
-  datetime:    String(r.DATATIME),
-  pv:          String(r.PV).padStart(4, "0"),
-  indirizzo:   String(r["INDIRIZZO PV"]),
-  tipoCarta:   String(r["TIPO CARTA"]),
-  codProd:     String(r["COD.PROD"]),
-  descrProd:   String(r["DESCR.PROD"]),
-  volume:      parseFloat(String(r.VOLUME).replace(",", "."))   || 0,
-  importoAccr: parseFloat(String(r["IMPORTO ACCR"]).replace(",", ".")) || 0,
-  prezzoAccr:  parseFloat(String(r["PRZ ACCR"]).replace(",", "."))   || 0,
-}));
 
-const reportDate  = new Date().toLocaleString("it-IT");
-const totalRows   = righeElaborate;
-const newCards    = righeNuoveCarte;
-const errors      = righeErrore;
+const logDump = memoryTransport.getLogSummary();
+const stats: CarteCreditoStats = {
+  reportDate: new Date().toLocaleString("it-IT"),
+  totalRows:  righeElaborate,
+  newCards:   righeNuoveCarte,
+  errors:     righeErrore,
+  logDump,      // aggiungi qui il testo dei warn/error
+  mail_log
+};
 
-await sendCarteCreditoReport(reportDate, totalRows, newCards, errors, rows);
-
+// 3) Costruisci l’HTML e invia la mail
+const fullHtml = buildCarteCreditoHtml(stats);
+await sendCarteCreditoReport(fullHtml,);
 
 
 
@@ -2067,14 +2061,16 @@ const listinoRows: ListinoRow[] = results.map(r => ({
   ordinato:   parseFloat(String(r.ORDINATO).replace(",", "."))    || 0,
   note:       String(r.NOTE),
 }));
-const stats = {
-  reportDate:   new Date().toLocaleString("it-IT"),
+const logDump = memoryTransport.getLogSummary();
+const stats: ListinoStats & { logDump: string } = {
+  reportDate,
   totalRows:    righeElaborate,
   modified:     righeModificate,
   skipped:      righeSaltate,
   errored:      righeErrore,
   deltaYesterday,
   rows:         listinoRows,
+  logDump,      // <-- aggiunto per far comparire il dump
 };
 
 const fullHtml = buildListinoHtml(stats);
