@@ -1,5 +1,6 @@
-import express, { Request, Response } from "express";
+import express, { Request, response, Response } from "express";
 import * as dotenv from "dotenv";
+import axios from 'axios';
 import { sql, getDatabasePool } from "./db/db.js";
 import { logger } from "./logger/logger.js";
 import crypto from "crypto";
@@ -10,7 +11,6 @@ import path from "path";
 import csv from "csv-parser";
 import { parse } from "date-fns";
 import { it } from "date-fns/locale";
-import { DayCard } from "./templates/consegnato.js";
 import type { TradingAreaRow } from "./templates/tradingarea.js";
 import { ListinoRow } from "./templates/listino.js";
 import {  memoryTransport } from "./logger/logger.js";
@@ -63,7 +63,8 @@ const csvMainDirectory = String(process.env.FILE_MAIN_FOLDER);
 const csvInputDirectory = String(process.env.FILE_FOLDER_INPUT);
 const csvOkDirectory = String(process.env.FILE_FOLDER_OK);
 const csvErrDirectory = String(process.env.FILE_FOLDER_ERR);
-
+const Token = process.env.Qlik_Auto_Token;
+const url = process.env.url;
 const app = express();
 
 // Leggi i file dei certificati SSL
@@ -424,7 +425,28 @@ async function scontoFissoMapping(
 
   return result;
 }
+async function QlikStartEtlFile(){
+ 
+  const formData = new FormData()
+const File="Consegnato"
+  // `file.name` è il nome originale, ma puoi anche specificarne uno personalizzato
+  try {
+  formData.append('file_name', File) // terzo argomento = nome da inviare
 
+  axios.post(url!, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+       'X-Execution-Token': Token
+    }
+  })
+console.log('✅ File caricato:', response);
+} catch (error) {
+    console.error('❌ Errore upload:', error);
+    if (axios.isAxiosError(error)) {
+      console.error('➡️ Response:', error.response?.data);
+    }
+  }
+}
 async function bandieraIndirizzoMapping(): Promise<String[]> {
   let result: String[] = [];
 
@@ -655,8 +677,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
 
 
   
-  
-
+await QlikStartEtlFile();
 const reportDate = new Date().toLocaleString("it-IT");
 const logDump: string = memoryTransport.getLogSummary();
 const stats: ConsegnatoStats = {
