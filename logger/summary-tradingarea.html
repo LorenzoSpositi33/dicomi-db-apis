@@ -76,6 +76,16 @@
     .ok  { background-color: #eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
     .warn{ background-color: #fff3cd; border:1px solid #f39c12; color:#f39c12; }
     .err { background-color: #fdecea; border:1px solid #e74c3c; color:#e74c3c; }
+    .log-dump {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    padding: 10px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 20px;
+  }
   </style>
 </head>
 <body>
@@ -90,21 +100,9 @@
       <div class="err">❌ ERR: {{errored}}</div>
     </div>
 
-    {{#each rows}}
-    <div class="day-card">
-      <div class="data">
-        PV: {{pv}} | Brand: {{brand}} | Indirizzo: {{addr}}
-      </div>
-      <div class="product-card">
-        <div class="product-name">Prodotto: {{prod}}</div>
-        <div class="product-kpi-container">
-          <div class="product-kpi ok">SELF<br>{{self}}</div>
-          <div class="product-kpi {{#if serv}}ok{{else}}warn{{/if}}">SERV<br>{{serv}}</div>
-          <div class="product-kpi {{#if close}}ok{{else}}warn{{/if}}">CHIUSURA<br>{{close}}</div>
-        </div>
-      </div>
-    </div>
-    {{/each}}
+     <div class="log-section">
+    <h2>📝 Log di esecuzione:</h2>
+    <pre class="log-dump">{{logDump}}</pre>
   </div>
 </body>
 </html>

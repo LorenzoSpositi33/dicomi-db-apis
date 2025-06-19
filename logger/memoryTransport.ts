@@ -1,6 +1,7 @@
 // src/logger/memoryTransport.ts
 import Transport, { TransportStreamOptions } from "winston-transport";
 
+// Definiamo qui l’interfaccia LogEntry
 export interface LogEntry {
   level: string;
   message: string;
@@ -9,39 +10,39 @@ export interface LogEntry {
 }
 
 export default class MemoryTransport extends Transport {
-  private logs: LogEntry[] = [];
+  // 1) dichiariamo correttamente il buffer
+  private _logs: LogEntry[] = [];
 
   constructor(opts?: TransportStreamOptions) {
     super(opts);
   }
 
+  // 2) implementiamo log() con tipi
   log(info: LogEntry, callback: () => void): void {
-    // filtra: registra solo se mail_log===true
     if (!info.mail_log) {
-      // chiama sempre la callback per non bloccare Winston
       return callback();
     }
-
-    // 1) push solo dei log con mail_log
-    this.logs.push(info);
-
-    // 2) emetti logged
+    this._logs.push(info);
     setImmediate(() => this.emit("logged", info));
-
-    // 3) ok a Winston
     callback();
   }
 
-  getLogSummary(): string {
-    return this.logs
+  // 3) getter per recuperare le entry
+  public getLogEntries(): LogEntry[] {
+    return this._logs;
+  }
+
+  // 4) riepilogo in stringa
+  public getLogSummary(): string {
+    return this._logs
       .map(({ timestamp, level, message }) => {
-        const t = timestamp || new Date().toISOString();
+        const t = timestamp ?? new Date().toISOString();
         return `${t} ${level}: ${message}`;
       })
       .join("\n");
   }
 
-  clearLogs(): void {
-    this.logs = [];
+  public clearLogs(): void {
+    this._logs = [];
   }
 }

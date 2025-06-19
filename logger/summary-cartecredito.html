@@ -17,6 +17,16 @@
     .row-card .title { font-size:14px; font-weight:bold; margin-bottom:8px; }
     .row-card .fields { font-size:13px; }
     .row-card .fields div { margin-bottom:4px; }
+    .log-dump {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    padding: 10px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 20px;
+  }
   </style>
 </head>
 <body>
@@ -31,19 +41,9 @@
       <div class="error">Errori<br>{{errors}}</div>
     </div>
 
-    {{#each rows}}
-    <div class="row-card">
-      <div class="title">PV {{pv}} – {{tipoTrs}} @ {{datetime}}</div>
-      <div class="fields">
-        <div><strong>Indirizzo:</strong> {{indirizzo}}</div>
-        <div><strong>Tipo Carta:</strong> {{tipoCarta}}</div>
-        <div><strong>Cod.Prod:</strong> {{codProd}} – {{descrProd}}</div>
-        <div><strong>Volume:</strong> {{volume}}</div>
-        <div><strong>Importo Accr.:</strong> {{importoAccr}}</div>
-        <div><strong>Prezzo Accr.:</strong> {{prezzoAccr}}</div>
-      </div>
-    </div>
-    {{/each}}
+    <div class="log-section">
+    <h2>📝 Log di esecuzione:</h2>
+    <pre class="log-dump">{{logDump}}</pre>
   </div>
 </body>
 </html>

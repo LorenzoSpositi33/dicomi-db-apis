@@ -49,6 +49,16 @@
     thead {
       background-color: #f0f0f0;
     }
+    .log-dump {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    padding: 10px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 20px;
+  }
   </style>
 </head>
 <body>
@@ -64,40 +74,10 @@
       <div class="err">❌ ERR: {{errored}}</div>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>PV</th>
-          <th>Prodotto</th>
-          <th>Prezzo Serv</th>
-          <th>Sconto Serv</th>
-          <th>Prezzo Self</th>
-          <th>Sconto Self</th>
-          <th>Prezzo Opt</th>
-          <th>Sconto Opt</th>
-          <th>Stacco</th>
-          <th>Ordinato</th>
-          <th>Note</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each rows}}
-        <tr>
-          <td>{{pv}}</td>
-          <td>{{product}}</td>
-          <td>{{prezzoServ}}</td>
-          <td>{{scontoServ}}</td>
-          <td>{{prezzoSelf}}</td>
-          <td>{{scontoSelf}}</td>
-          <td>{{prezzoOpt}}</td>
-          <td>{{scontoOpt}}</td>
-          <td>{{stacco}}</td>
-          <td>{{ordinato}}</td>
-          <td>{{note}}</td>
-        </tr>
-        {{/each}}
-      </tbody>
-    </table>
+     <div class="log-section">
+    <h2>📝 Log di esecuzione:</h2>
+    <pre class="log-dump">{{logDump}}</pre>
+  </div>
   </div>
 </body>
 </html>

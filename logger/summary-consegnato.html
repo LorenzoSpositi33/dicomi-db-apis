@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -35,21 +34,10 @@
       font-weight: bold;
       margin-bottom: 10px;
     }
-    .product-card {
-      background-color: #ffffff;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 10px;
-      margin-bottom: 15px;
-    }
-    .product-name {
-      font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 8px;
-    }
     .product-kpi-container {
       display: flex;
       gap: 12px;
+      flex-wrap: wrap;
     }
     .product-kpi {
       flex: 1;
@@ -59,35 +47,47 @@
       font-size: 13px;
       font-weight: bold;
     }
-    .err { background-color: #fdecea; border: 1px solid #e74c3c; color: #e74c3c; }
+    .ok   { background-color: #eafaf1; border: 1px solid #2ecc71; color: #2ecc71; }
     .warn { background-color: #fff3cd; border: 1px solid #f39c12; color: #f39c12; }
-    .ok { background-color: #eafaf1; border: 1px solid #2ecc71; color: #2ecc71; }
+    .err  { background-color: #fdecea; border: 1px solid #e74c3c; color: #e74c3c; }
+    .log-dump {
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Estrazione del {{reportDate}}</h1>
+      <h1>Report CONSEGNATO del {{reportDate}}</h1>
     </div>
 
     {{#each dayCards}}
     <div class="day-card">
-      <div class="data">
-        Data: {{date}} {{#if deltaValue}}| Delta: <span class="{{deltaClass}}">{{deltaSign}}{{deltaValue}}</span> (media: {{mediaDB}}, attuale: {{delta}}){{/if}}
-      </div>
-
-      {{#each prods}}
-      <div class="product-card">
-        <div class="product-name">Prodotto: {{article}}</div>
-        <div class="product-kpi-container">
-          <div class="product-kpi err">❌ ERR<br>{{err}}</div>
-          <div class="product-kpi warn">⚠️ WARN<br>{{warn}}</div>
+      <div class="data">Data: {{date}}</div>
+      <div class="product-kpi-container">
+        {{#each prods}}
           <div class="product-kpi ok">✅ OK<br>{{ok}}</div>
-        </div>
+          <div class="product-kpi warn">⚠️ WARN<br>{{warn}}</div>
+          <div class="product-kpi err">❌ ERR<br>{{err}}</div>
+        {{/each}}
       </div>
-      {{/each}}
     </div>
     {{/each}}
+
+    {{#if mail_log}}
+    <div class="log-section">
+      <h2>📝 Log di esecuzione:</h2>
+      <pre class="log-dump">{{logDump}}</pre>
+    </div>
+    {{/if}}
+
   </div>
 </body>
 </html>

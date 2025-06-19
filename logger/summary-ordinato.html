@@ -20,6 +20,16 @@
     .product-kpi { flex:1; padding:10px; border-radius:6px; text-align:center; font-size:13px; font-weight:bold; }
     .ok   { background:#eafaf1; border:1px solid #2ecc71; color:#2ecc71; }
     .warn { background:#fff3cd; border:1px solid #f39c12; color:#f39c12; }
+    .log-dump {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    padding: 10px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 20px;
+  }
   </style>
 </head>
 <body>
@@ -34,17 +44,9 @@
       <div class="err">❌ ERR: {{err}}</div>
     </div>
 
-    {{#each rows}}
-    <div class="day-card">
-      <div class="data">PV: {{pv}}</div>
-      <div class="product-card">
-        <div class="product-name">Prodotto: {{prod}}</div>
-        <div class="product-kpi-container">
-          <div class="product-kpi ok">Volume Ordinato<br>{{vol}}</div>
-        </div>
-      </div>
-    </div>
-    {{/each}}
+     <div class="log-section">
+    <h2>📝 Log di esecuzione:</h2>
+    <pre class="log-dump">{{logDump}}</pre>
   </div>
 </body>
 </html>

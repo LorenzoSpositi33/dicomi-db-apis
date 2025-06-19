@@ -13,6 +13,7 @@ import { it } from "date-fns/locale";
 import { DayCard } from "./templates/consegnato.js";
 import type { TradingAreaRow } from "./templates/tradingarea.js";
 import { ListinoRow } from "./templates/listino.js";
+import {  memoryTransport } from "./logger/logger.js";
 import type { CarteCreditoRow, CarteCreditoStats } from "./templates/carteCredito.js";
 
 // --- CONSEGNATO ---
@@ -56,7 +57,7 @@ const impScontiFissiTable = process.env.TABLE_IMP_SCONTI_FISSI;
 const artSellInTable = process.env.TABLE_ARTICOLI_SELLIN;
 const artTable = process.env.TABLE_ARTICOLI;
 const tipiCarteTable = process.env.TABLE_TIPI_CARTE;
-
+const mail_log = true;
 const secretGen = process.env.SECRET_AUTH_KEY;
 const csvMainDirectory = String(process.env.FILE_MAIN_FOLDER);
 const csvInputDirectory = String(process.env.FILE_FOLDER_INPUT);
@@ -204,7 +205,7 @@ async function getMediaOrdinato(file_date: Date) {
     return result[0].Media;
   } catch (err) {
     logger.error(
-      `Errore nell'ottenere la media del conteggio righe ordinato nelle settimane passate, query: `,
+      `Errore nell'ottenere la media del conteggio righe ordinato nelle settimane passate, query: `, mail_log,
       err
     );
   }
@@ -497,7 +498,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`, mail_log
     );
     return false;
   }
@@ -512,11 +513,11 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
   if (checkDuplicates != true) {
     logger.error(
       `Errore: Il file contiene delle righe chiavi duplicate. ${JSON.stringify(
-        checkDuplicates,
+        checkDuplicates, 
         null,
         2
-      )}`
-    );
+      )}`,
+    mail_log);
     return false;
   }
 
@@ -573,7 +574,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     if (consegnato < 0 || !consegnato) {
       logger.error(
         "Il valore di consegnato contiene una quantità negativa o nulla: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -586,7 +587,8 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     if (!art) {
       logger.error(
         "Il valore di prodotto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
+      
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -597,7 +599,7 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       logArray.err += 1;
@@ -754,7 +756,7 @@ async function elaboraOrdinato(
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`,mail_log
     );
     return false;
   }
@@ -795,7 +797,7 @@ async function elaboraOrdinato(
       logger.info("Rilevata DOMENICA, data convertita in: ", dataOrdinato);
     }
   } else {
-    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename",mail_log);
 
     return false;
   }
@@ -813,7 +815,7 @@ async function elaboraOrdinato(
         null,
         2
       )}`
-    );
+    ,mail_log);
     return false;
   }
 
@@ -833,7 +835,7 @@ async function elaboraOrdinato(
     if (ordinato < 0 || !ordinato) {
       logger.error(
         "Il valore di ordinato contiene una quantità negativa o nulla: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -842,7 +844,7 @@ async function elaboraOrdinato(
     if (!articoliMap.includes(articolo)) {
       logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -851,7 +853,7 @@ async function elaboraOrdinato(
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -900,7 +902,7 @@ const rows = results.map(r => ({
   prod: String(r.PROD_NAME),
   vol:  Number(String(r.VOL_ORDINATO).replace(",", ".")),
 }));
-
+const logDump = memoryTransport.getLogSummary();
 const stats = {
   reportDate: new Date().toLocaleString("it-IT"),
   mediaGlobal: await getMediaOrdinato(dataOrdinato),
@@ -908,9 +910,17 @@ const stats = {
   ok:           righeModificate,
   warn:         righeSaltate,
   err:          righeErrore,
+  logDump,
+  mail_log
 };
 
 const html = buildOrdinatoHtml(stats);
+await new Promise(r => setImmediate(r));
+const entries = memoryTransport.getLogEntries(); 
+
+memoryTransport.clearLogs();
+
+
 await sendOrdinatoReport(html);
 
 
@@ -1003,7 +1013,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`,mail_log
     );
     return false;
   }
@@ -1022,7 +1032,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
         null,
         2
       )}`
-    );
+    ,mail_log);
     return false;
   }
 
@@ -1053,7 +1063,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
 
       righeErrore += 1;
@@ -1064,7 +1074,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     if (!tipoTrsList.includes(tipo)) {
       logger.error(
         "Il valore di Tipo Trs non è presente nella lista dichiarata: ",
-        row
+        row,mail_log
       );
 
       righeErrore += 1;
@@ -1075,7 +1085,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     if (!impiantiAbilitatiMap.includes(impiantoCodice)) {
       logger.warn(
         "Il valore di impianto non è presente tra gli impianti abilitati alle carte promo nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeNonAbilitate += 1;
     }
@@ -1288,7 +1298,7 @@ async function elaboraTradingArea(
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`,mail_log
     );
     return false;
   }
@@ -1316,7 +1326,7 @@ async function elaboraTradingArea(
     ); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataTradingArea); // "2025-04-10"
   } else {
-    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename",mail_log);
 
     return false;
   }
@@ -1336,7 +1346,7 @@ async function elaboraTradingArea(
         null,
         2
       )}`
-    );
+    ,mail_log);
     return false;
   }
 
@@ -1366,7 +1376,7 @@ async function elaboraTradingArea(
     if (!articoliMap.includes(articolo) && !ignoreArticles.includes(articolo)) {
       logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1376,7 +1386,7 @@ async function elaboraTradingArea(
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1386,7 +1396,7 @@ async function elaboraTradingArea(
     if (ignoreArticles.includes(articolo)) {
       logger.warn(
         "Il valore di articolo è presente nella lista di articoli da ignorare: ",
-        row
+        row,mail_log
       );
       righeSaltate += 1;
       // Non devo comunque scrivere la riga
@@ -1397,7 +1407,7 @@ async function elaboraTradingArea(
     if (!bandieraIndirizzoMap.includes(`${indirizzo}|${bandiera}`)) {
       logger.error(
         "Il valore di Indirizzo + Bandiera non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1588,7 +1598,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`,mail_log
     );
     return false;
   }
@@ -1654,7 +1664,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     if (!art) {
       logger.error(
         "Il valore di prodotto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1664,7 +1674,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1674,7 +1684,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     if (!tipiCarteMap.includes(tipo)) {
       logger.warn(
         "Il valore di tipo carta non è presente nel DB, lo creo provvisoriamente",
-        row
+        row,mail_log
       );
 
       // Inserisco nel DB la nuova carta
@@ -1878,7 +1888,7 @@ async function elaboraListDistr(
   // 1) Controllo che gli header del file siano corretti
   if (!(await equalList(fileHeaders, expectedHeaders))) {
     logger.error(
-      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`
+      `Errore: gli header del file non sono quelli previsti. Attuali: ${fileHeaders} vs Previsti ${expectedHeaders}`,mail_log
     );
     return false;
   }
@@ -1906,7 +1916,7 @@ async function elaboraListDistr(
     ); // Nota: i mesi in JS sono zero-indexed
     logger.info("Data trovata:", dataListDistr); // "2025-04-10"
   } else {
-    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename");
+    logger.error("Nessuna data nel formato YYYYMMDD trovata nel filename",mail_log);
 
     return false;
   }
@@ -1926,7 +1936,7 @@ async function elaboraListDistr(
         null,
         2
       )}`
-    );
+    ,mail_log);
     return false;
   }
 
@@ -1967,7 +1977,7 @@ async function elaboraListDistr(
     if (!impiantiMap.includes(impiantoCodice)) {
       logger.error(
         "Il valore di impianto non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1977,7 +1987,7 @@ async function elaboraListDistr(
     if (!articoliMap.includes(articolo)) {
       logger.error(
         "Il valore di articolo non è presente nel database di Dicomi: ",
-        row
+        row,mail_log
       );
       righeErrore += 1;
       continue;
@@ -1985,7 +1995,7 @@ async function elaboraListDistr(
 
     //WARNING 3) Controllo sullo sconto fisso, solo per log
     if (scontoFisso) {
-      logger.warn("Impianto a sconto fisso: ", row);
+      logger.warn("Impianto a sconto fisso: ", row,mail_log);
     }
 
     // Faccio l'upsert sul DB
