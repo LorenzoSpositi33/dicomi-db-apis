@@ -1726,7 +1726,6 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
 
 
 
-// 1) Mappa i risultati in CarteCreditoRow[]
 const rows: CarteCreditoRow[] = results.map(r => ({
   tipoTrs:     String(r["TIPO TRS"]),
   datetime:    String(r.DATATIME),
@@ -1740,13 +1739,11 @@ const rows: CarteCreditoRow[] = results.map(r => ({
   prezzoAccr:  parseFloat(String(r["PRZ ACCR"]).replace(",", "."))   || 0,
 }));
 
-// 2) Prepara i KPI
 const reportDate  = new Date().toLocaleString("it-IT");
 const totalRows   = righeElaborate;
 const newCards    = righeNuoveCarte;
 const errors      = righeErrore;
 
-// 3) Invia tutto al template
 await sendCarteCreditoReport(reportDate, totalRows, newCards, errors, rows);
 
 
