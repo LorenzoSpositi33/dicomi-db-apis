@@ -96,6 +96,60 @@ export async function sendLogSummary(
       };
 
       break;
+
+    case "Carte Credito":
+       // Carica il template HTML
+      templatePath = path.join(__dirname, "cartecreditoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
+    
+    case "Listino":
+       // Carica il template HTML
+      templatePath = path.join(__dirname, "listinoSummary.html");
+      htmlContent = fs.readFileSync(templatePath, "utf8");
+
+      if (Number(SummaryInfos["DELTA"]) > 0) {
+        formattedDelta = `+${Number(SummaryInfos["DELTA"])}`;
+        deltaColor = "color: green;";
+      } else if (Number(SummaryInfos["DELTA"]) < 0) {
+        formattedDelta = `${Number(SummaryInfos["DELTA"])}`; // negativo già ha il segno
+        deltaColor = "color: red;";
+      } else {
+        formattedDelta = "0";
+      }
+
+      // Definizione dei placeholder e dei loro valori
+      replacements = {
+        DATA: new Date(SummaryInfos["DATE"]).toLocaleString("it-IT", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }),
+        "VAL CODICE 0": SummaryInfos["OK"] ?? 0,
+        "VAL CODICE 1": SummaryInfos["ERROR"] ?? 0,
+        "VAL CODICE 2": SummaryInfos["WARN"] ?? 0,
+        "VAL DELTA": formattedDelta ?? "N/A",
+        "DELTA COLOR": deltaColor,
+        //   "LISTA CAMBIO GESTIONE": cambioGestioneHtml,
+        "LOG DUMP": logSummary || "Nessun log disponibile",
+      };
+
+      break;
   }
 
   // Sostituisci tutti i placeholder nel template
