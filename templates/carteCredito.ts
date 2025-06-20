@@ -18,9 +18,9 @@ export interface CarteCreditoRow {
 
 export interface CarteCreditoStats {
   reportDate: string;
-  totalRows: number;
-  newCards: number;
-  errors: number;
+  modified: number;
+  skipped: number;
+  errored: number;
   logDump: string;
   mail_log: boolean;
 }
