@@ -1,69 +1,62 @@
-import winston from "winston";
+import { createLogger, format, transports } from "winston";
 import path from "path";
 import { fileURLToPath } from "url";
 import MemoryTransport from "./memoryTransport.js";
 
+const { combine, timestamp, printf, colorize } = format;
+
+// Icone da usare nei log:
+// ✅ Successo (info)
+// ❌ Errore (error)
+// ⚠️ Avviso (warn)
+// 📢 Informazione (info)
+// 🐛 Debug (debug)
 
 // Ottieni il percorso corrente del file (per ES module)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Instanza di MemoryTransport per accumulare i log destinati alla mail
-const memoryTransport = new MemoryTransport();
-
-// Configura Winston
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.combine(
-    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-    winston.format.printf(({ timestamp, level, message, ...meta }) => {
-      const metaString = Object.keys(meta).length
-        ? ` ${JSON.stringify(meta)}`
-        : "";
-      return `[${timestamp}] ${level.toUpperCase()}: ${message}${metaString}`;
-    })
-  ),
-  transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(), // mantiene i colori
-        winston.format.simple()
-      ),
-    }),
-    new winston.transports.File({
-      filename: path.join(__dirname, "..", "logs", "app.log"),
-      maxsize: 500 * 1024 * 1024, // 500MB
-      maxFiles: 30,
-      tailable: true,
-      format: winston.format.combine(
-        winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-        winston.format.printf(({ timestamp, level, message, ...meta }) => {
-          const metaString = Object.keys(meta).length
-            ? ` ${JSON.stringify(meta)}`
-            : "";
-          return `[${timestamp}] ${level.toUpperCase()}: ${message}${metaString}`;
-        })
-      ),
-    }),
-    
-    new winston.transports.File({
-      filename: path.join(__dirname, "..", "logs", "errors.log"),
-      level: "error",
-      format: winston.format.combine(
-        winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-        winston.format.printf(({ timestamp, level, message, ...meta }) => {
-          const metaString = Object.keys(meta).length
-            ? ` ${JSON.stringify(meta)}`
-            : "";
-          return `[${timestamp}] ${level.toUpperCase()}: ${message}${metaString}`;
-        })
-      ),
-    }),
-    // Transport in memoria per il dump email (filtra internamente mail_log)
-    memoryTransport
-  ],
+// formattazione unica (aggiunge timestamp in info.timestamp)
+const myFormat = printf(({ timestamp, level, message, ...meta }) => {
+  const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : "";
+  return `[${timestamp}] ${level.toUpperCase()}: ${message}${metaStr}`;
 });
 
+// istanza singola, sempre la stessa
+export const memoryTransport = new MemoryTransport({ level: "debug" });
 
-logger.add(memoryTransport);
-export { logger, memoryTransport };
+export const logger = createLogger({
+  level: "debug",
+  format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
+  transports: [
+    // console: solo info+ (no debug)
+    new transports.Console({
+      level: "info",
+      format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
+    }),
+
+    // file per tutti i log di livello info e superiore
+    new transports.File({
+      filename: path.join(__dirname, "..", "logs", "app.log"),
+      level: "info",
+      format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
+    }),
+
+    // file per gli errori
+    new transports.File({
+      filename: path.join(__dirname, "..", "logs", "error.log"),
+      level: "error",
+      format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
+    }),
+
+    // file per i debug (tutti i debug)
+    new transports.File({
+      filename: path.join(__dirname, "..", "logs", "debug.log"),
+      level: "debug",
+      format: combine(timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), myFormat),
+    }),
+
+    // infine, il memory transport (che tu filtri internamente via mail_log)
+    memoryTransport,
+  ],
+});

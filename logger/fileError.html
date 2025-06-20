@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+   <meta charset="UTF-8">
+   <title>Report Email - Problema</title>
+   <style>
+      /* Stili base per email */
+      body {
+         font-family: Arial, sans-serif;
+         margin: 0;
+         padding: 20px;
+         background-color: #f6f6f6;
+      }
+
+      .container {
+         background-color: #ffffff;
+         padding: 20px;
+         border: 1px solid #dddddd;
+         max-width: 600px;
+         margin: auto;
+         text-align: center;
+      }
+
+      .header {
+         margin-bottom: 20px;
+      }
+
+      .problem-title {
+         font-size: 20px;
+         font-weight: bold;
+         color: #c0392b;
+         background-color: #fdecea;
+         padding: 15px;
+         border: 1px solid #e74c3c;
+         border-radius: 4px;
+      }
+   </style>
+</head>
+
+<body>
+   <div class="container">
+      <!-- Titolo con data dinamica -->
+      <div class="header">
+         <h1>Data del file: <span id="report-date">[DATA]</span></h1>
+      </div>
+
+      <!-- Titolo del problema -->
+      <div class="problem-title">
+         [ERR MESSAGE]
+      </div>
+   </div>
+</body>
+
+</html>
