@@ -425,13 +425,13 @@ async function scontoFissoMapping(
 
   return result;
 }
-async function QlikStartEtlFile(){
+async function QlikStartEtlFile(file : string){
  
   const formData = new FormData()
-const File="Consegnato"
-  // `file.name` è il nome originale, ma puoi anche specificarne uno personalizzato
+
+
   try {
-  formData.append('file_name', File) // terzo argomento = nome da inviare
+    formData.append('file_name', file) 
 
   axios.post(url!, formData, {
     headers: {
@@ -676,8 +676,8 @@ async function elaboraConsegnato(results: any[], fileHeaders: String[]) {
     err ${righeErrore}`;
 
 
-  
-await QlikStartEtlFile();
+
+await QlikStartEtlFile("Consegnato");
 const reportDate = new Date().toLocaleString("it-IT");
 const logDump: string = memoryTransport.getLogSummary();
 const stats: ConsegnatoStats = {
@@ -917,7 +917,7 @@ async function elaboraOrdinato(
   logger.info(`Righe ignorate: ${righeSaltate}`);
   logger.info(`Righe andate in errore: ${righeErrore}`);
 
-
+await QlikStartEtlFile("Ordinato");
 const reportDate = new Date().toLocaleString("it-IT");
 
 const rows = results.map(r => ({
@@ -1144,6 +1144,7 @@ async function elaboraCartePromo(results: any[], fileHeaders: String[]) {
     ok ${righeModificate},
     skipped ${skipped},
     err ${righeErrore}`;
+    await QlikStartEtlFile("Carte Promo");
 const reportDate = new Date().toLocaleString("it-IT");
 
 const rowsFormatted = results.map(r => ({
@@ -1478,7 +1479,7 @@ async function elaboraTradingArea(
     ok ${righeModificate},
     warn ${righeSaltate},
     err ${righeErrore}`;
-
+await QlikStartEtlFile("Trading Area");
 const reportDate = new Date().toLocaleString("it-IT");
 
 const tradingAreaRows: TradingAreaRow[] = results.map(r => ({
@@ -1754,7 +1755,7 @@ async function elaboraCarteCredito(results: any[], fileHeaders: String[]) {
     err ${righeErrore},
     new ${righeNuoveCarte}`;
 
-
+await QlikStartEtlFile("Carte Credito");
 
 
 
@@ -2065,7 +2066,7 @@ async function elaboraListDistr(
     ok ${righeModificate},
     warn ${righeSaltate},
     err ${righeErrore}`;
-
+await QlikStartEtlFile("Listini");
 const reportDate = new Date().toLocaleString("it-IT");
 const deltaYesterday = "+10"; // puoi calcolarlo se vuoi o tenerlo fisso
 
